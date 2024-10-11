@@ -1,7 +1,11 @@
 package com.x17jiri.Loky
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.Paint.Align
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -55,6 +59,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -65,41 +70,65 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat.startForegroundService
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import java.security.SecureRandom
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 class MainActivity: ComponentActivity() {
 	private lateinit var groupsData: GroupsData
-	private lateinit var loginData: LoginData
+	private lateinit var serverInterface: ServerInterface
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		groupsData = GroupsData(dataStore)
-		loginData = LoginData(dataStore)
+		serverInterface = ServerInterface(this)
 		setContent {
 			X17LokyTheme {
-				val navController = rememberNavController()
-				NavigationGraph(navController, groupsData, loginData)
+				val model: MainViewModel = viewModel(factory = MainViewModelFactory(this))
+				val appState by model.appState.collectAsState()
+				when {
+					appState.currentScreen is Screen.Login ->
+						LoginScreen(this, model)
+
+					appState.currentScreen is Screen.Loading ->
+						LoadingScreen()
+
+					appState.currentScreen is Screen.Other ->
+						NavigationGraph(this, groupsData, model)
+				}
 			}
 		}
 	}
 }
 
 @Composable
-fun NavigationGraph(navController: NavHostController, groupsData: GroupsData, loginData: LoginData) {
-	NavHost(navController = navController, startDestination = "login") {
-		composable("login") { LoginScreen(navController, loginData) }
-		composable("map") { MapView(navController) }
+fun LoadingScreen() {
+	Box(
+		modifier = Modifier.fillMaxSize(),
+		contentAlignment = Alignment.Center
+	) {
+		Text("Loading...", fontSize = 24.sp)
+	}
+}
+
+@Composable
+fun NavigationGraph(context: Context, groupsData: GroupsData, model: MainViewModel) {
+	Log.d("Locodile", "Building nav graph")
+	val navController = rememberNavController()
+	NavHost(navController = navController, startDestination = "map") {
+		composable("map") { MapView(navController, model) }
 		composable("settings") { Settings(navController) }
 		composable("groups") { Groups(navController, groupsData) }
 		composable("groupDetail/{groupId}") { entry ->
@@ -110,9 +139,10 @@ fun NavigationGraph(navController: NavHostController, groupsData: GroupsData, lo
 }
 
 @Composable
-fun LoginScreen(navController: NavController, loginData: LoginData) {
-	var username by remember { mutableStateOf(loginData.user) }
-	var password by remember { mutableStateOf(loginData.passwd) }
+fun LoginScreen(context: Context, model: MainViewModel) {
+	val cred = model.credetials.get()
+	var username by remember { mutableStateOf(cred.user) }
+	var password by remember { mutableStateOf(cred.passwd) }
 	var failedDialog by remember { mutableStateOf("") }
 	Column(
 		modifier = Modifier.fillMaxSize(),
@@ -125,7 +155,10 @@ fun LoginScreen(navController: NavController, loginData: LoginData) {
 		) {
 			TextField(
 				value = username,
-				onValueChange = { username = it },
+				onValueChange = {
+					username = it
+					model.credetials.set(username, password)
+				},
 				label = { Text("Username") },
 				modifier = Modifier
 					.fillMaxWidth()
@@ -133,7 +166,10 @@ fun LoginScreen(navController: NavController, loginData: LoginData) {
 			)
 			TextField(
 				value = password,
-				onValueChange = { password = it },
+				onValueChange = {
+					password = it
+					model.credetials.set(username, password)
+				},
 				label = { Text("Password") },
 				modifier = Modifier
 					.fillMaxWidth()
@@ -142,12 +178,7 @@ fun LoginScreen(navController: NavController, loginData: LoginData) {
 			)
 			Button(
 				onClick = {
-					loginData.storeCredentials(username, password)
-					if (username == "admin" && password == "admin") {
-						navController.navigate("map")
-					} else {
-						failedDialog = "Invalid username or password"
-					}
+					model.login()
 				},
 				enabled = username != "" && password != "",
 				content = { Text("Login") },
@@ -171,7 +202,7 @@ fun LoginScreen(navController: NavController, loginData: LoginData) {
 }
 
 @Composable
-fun MapView(navController: NavController) {
+fun MapView(navController: NavController, model: MainViewModel) {
 	Scaffold(
 		modifier = Modifier
 			.fillMaxSize()
@@ -182,10 +213,16 @@ fun MapView(navController: NavController) {
 				modifier = Modifier.fillMaxWidth()
 			) {
 				Box {
-					var isChecked by remember { mutableStateOf(false) }
+					val isServiceRunning by model.isLocationServiceRunning.collectAsState()
 					Switch(
-						checked = isChecked,
-						onCheckedChange = { isChecked = it },
+						checked = isServiceRunning,
+						onCheckedChange = {
+							if (it) {
+								model.startLocationService()
+							} else {
+								model.stopLocationService()
+							}
+						},
 						modifier = Modifier.padding(start = 10.dp, end = 10.dp),
 					)
 				}
@@ -525,7 +562,7 @@ fun GroupDetail(navController: NavController, groupsData: GroupsData, id: Int) {
 		}
 	}
 }
-
+/*
 @Preview(showBackground = true)
 @Composable
 fun MapViewPreview() {
@@ -533,7 +570,7 @@ fun MapViewPreview() {
 		val navController = rememberNavController()
 		MapView(navController)
 	}
-}
+}*/
 /*
 @Preview(showBackground = true)
 @Composable

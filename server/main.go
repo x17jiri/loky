@@ -35,12 +35,12 @@ type LocBuffer struct {
 const MAX_GROUPS = 16
 
 type User struct {
-	Name    string                 `json:"name"`
-	Token   uint64                 `json:"token"`
-	Salt    []byte                 `json:"salt"`
-	Passwd  []byte                 `json:"passwd"`
-	RawCert []byte                 `json:"cert"`
-	Groups  [MAX_GROUPS]*LocBuffer `json:"-"`
+	Name   string                 `json:"name"`
+	Token  uint64                 `json:"token"`
+	Salt   []byte                 `json:"salt"`
+	Passwd []byte                 `json:"passwd"`
+	Key    []byte                 `json:"-"`
+	Groups [MAX_GROUPS]*LocBuffer `json:"-"`
 }
 
 type Users struct {
@@ -208,11 +208,10 @@ func (users *Users) add(name string, passwd string) (*User, error) {
 	}
 
 	user := &User{
-		Name:    name,
-		Token:   token,
-		Salt:    salt,
-		Passwd:  hashed_passwd,
-		RawCert: nil,
+		Name:   name,
+		Token:  token,
+		Salt:   salt,
+		Passwd: hashed_passwd,
 	}
 	func() {
 		users.mutex.Lock()
@@ -261,34 +260,42 @@ func (users *Users) check_passwd(name string, passwd string) *User {
 type LoginInput struct {
 	Name   string `json:"name"`
 	Passwd string `json:"passwd"`
-	Cert   []byte `json:"cert"`
 }
 
 type LoginOutput struct {
 	Token uint64 `json:"token"`
+	Key   []byte `json:"key"`
 }
 
 var users *Users
 
 func login_handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("login_handler")
 	r.Body = http.MaxBytesReader(w, r.Body, 16384)
+
+	/*	bodyBytes, err := io.ReadAll(r.Body)
+		fmt.Println("login_handler: body = ", string(bodyBytes))*/
 
 	var input LoginInput
 	err := json.NewDecoder(r.Body).Decode(&input)
 	if err != nil {
+		fmt.Println("login_handler: error decoding input:", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
-	}
-	if len(r.TLS.PeerCertificates) == 0 {
-		http.Error(w, "No client certificate", http.StatusBadRequest)
-	}
-	if !bytes.Equal(r.TLS.PeerCertificates[0].Raw, input.Cert) {
-		http.Error(w, "Certificate mismatch", http.StatusBadRequest)
 	}
 
 	user := users.check_passwd(input.Name, input.Passwd)
 	if user == nil {
+		fmt.Println("login_handler: invalid password")
 		http.Error(w, "Invalid password", http.StatusUnauthorized)
+		return
+	}
+
+	var key []byte = make([]byte, 16)
+	_, err = rand.Read(key)
+	if err != nil {
+		fmt.Println("login_handler: error generating key:", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -298,13 +305,14 @@ func login_handler(w http.ResponseWriter, r *http.Request) {
 		defer users.mutex.Unlock()
 
 		token = user.Token
-		user.RawCert = input.Cert
+		user.Key = key
 	}()
 
 	users.store()
 
 	output := LoginOutput{
 		Token: token,
+		Key:   key,
 	}
 	json.NewEncoder(w).Encode(output)
 }
@@ -403,13 +411,6 @@ func write_handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(r.TLS.PeerCertificates) == 0 ||
-		!bytes.Equal(r.TLS.PeerCertificates[0].Raw, user.RawCert) {
-
-		http.Error(w, "Invalid certificate", http.StatusUnauthorized)
-		return
-	}
-
 	for _, item := range input.Locs {
 		if item.Group >= MAX_GROUPS {
 			http.Error(w, "Invalid group", http.StatusBadRequest)
@@ -451,6 +452,7 @@ func main() {
 		fmt.Println("Error loading users:", err)
 		return
 	}
+	users.add("admin", "admin")
 	//users.add("x17jiri", "my stupefyingly insecure password")
 	//users.add("zuzka", "my stupefyingly secure password")
 	//err = users.store_users("users.json")

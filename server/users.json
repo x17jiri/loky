@@ -1,0 +1,16 @@
+[
+	{
+		"name": "x17jiri",
+		"token": 9729003118235404020,
+		"salt": "H+8bNiJkEzjxhHHDMcmLMA==",
+		"passwd": "mLdCiOkL3GtYXPp6fstQLkGuNlAMybqsD1MiUzXJaXs=",
+		"cert": null
+	},
+	{
+		"name": "zuzka",
+		"token": 17174204875138492334,
+		"salt": "XLuDo7dtX+9SaI36jTq9MQ==",
+		"passwd": "FAeiBab0OLUThRQ/5vXmvk19CRFVKDzXI4DtzXmrWBk=",
+		"cert": null
+	}
+]

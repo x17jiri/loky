@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 sealed class Screen {
     object Loading : Screen()
@@ -27,31 +28,26 @@ data class AppState(
 
 class MainViewModel(private var context: Context): ViewModel() {
 	val credMan = CredentialsManager(context.dataStore)
-	val groupsMan = GroupsManager(context.dataStore)
 	val server = ServerInterface(context)
 	val isLocationServiceRunning = LocationServiceState.isRunning
+	val database = AppDatabase.getInstance(context)
+	val contactsMan = ContactsManager(database)
 
     private val _appState = MutableStateFlow(AppState())
     val appState: StateFlow<AppState> = _appState.asStateFlow()
 
 	init {
-		viewModelScope.launch {
+		runBlocking {
 			credMan.init()
 		}
 		viewModelScope.launch {
 			credMan.objserve()
 		}
 		viewModelScope.launch {
-			groupsMan.init()
-		}
-		viewModelScope.launch {
-			groupsMan.observe_order()
-		}
-		viewModelScope.launch {
-			groupsMan.objserve_groups()
+			contactsMan.init()
 		}
 
-		val cred = credMan.credentialsFlow.value
+		val cred = credMan.credentials.value
 		if (cred.user.isEmpty() || cred.passwd.isEmpty()) {
 			_appState.value = AppState(Screen.Login)
 		} else {
@@ -66,28 +62,23 @@ class MainViewModel(private var context: Context): ViewModel() {
 	}
 
 	fun login() {
-		val cred: Credentials = credMan.credentialsFlow.value
+		val cred = credMan.credentials.value
 		viewModelScope.launch {
 			_appState.value = AppState(Screen.Loading)
-			val writeCert = server.login(cred)
-
-			credMan.writeCertFlow.value = writeCert
-
-			_appState.value =
-				if (writeCert != null) {
-					AppState(Screen.Other)
-				} else {
-					AppState(Screen.Login)
-				}
+			val updatedCred = server.login(cred)
+			if (updatedCred != null) {
+				credMan.credentials.value = updatedCred
+				_appState.value = AppState(Screen.Other)
+			} else {
+				_appState.value = AppState(Screen.Login)
+			}
 		}
 	}
 
 	fun sendLoc(loc: Location) {
-		val writeCert = credMan.writeCertFlow.value
-		if (writeCert != null) {
-			viewModelScope.launch {
-				server.sendLoc(writeCert, loc)
-			}
+		val cred = credMan.credentials.value
+		viewModelScope.launch {
+			server.sendLoc(cred, loc)
 		}
 	}
 

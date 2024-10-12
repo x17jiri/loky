@@ -1,20 +1,26 @@
 [
 	{
 		"name": "admin",
-		"token": 1885306133077204614,
-		"salt": "MN8aNtp3XLgk0T4p59o81A==",
-		"passwd": "Uwhl2t5EtQpRFJsGyudIG57JXtrjNC21l2D2x9wjlK8="
+		"salt": "wUY6TjQEYS7FWDW3aEuSXw==",
+		"passwd": "jrXzfyzqL8zaScoMin28JO1gGyfQNKR42RJsapzmu3A=",
+		"id": 12824589403917323466,
+		"token": null,
+		"key": null
 	},
 	{
 		"name": "x17jiri",
-		"token": 9729003118235404020,
-		"salt": "H+8bNiJkEzjxhHHDMcmLMA==",
-		"passwd": "mLdCiOkL3GtYXPp6fstQLkGuNlAMybqsD1MiUzXJaXs="
+		"salt": "ZMwoxxzI++JYlZRARD+4Aw==",
+		"passwd": "TrIuupYsmAl8Al+FuLO1ANYngcfXbilgoufm3JEbIeo=",
+		"id": 17894962133825506499,
+		"token": null,
+		"key": null
 	},
 	{
 		"name": "zuzka",
-		"token": 17174204875138492334,
-		"salt": "XLuDo7dtX+9SaI36jTq9MQ==",
-		"passwd": "FAeiBab0OLUThRQ/5vXmvk19CRFVKDzXI4DtzXmrWBk="
+		"salt": "zzDCzJ3qUexs2FlSJkSG1Q==",
+		"passwd": "bLbd8Dw2BwcBgGQzfb8MV9gQn6oheHkqkudeVATZ5eU=",
+		"id": 15649694257626378505,
+		"token": null,
+		"key": null
 	}
 ]

@@ -126,17 +126,17 @@ fun NavigationGraph(context: Context, model: MainViewModel) {
 	NavHost(navController = navController, startDestination = "map") {
 		composable("map") { MapView(navController, model) }
 		composable("settings") { Settings(navController) }
-		composable("groups") { Groups(navController, model) }
+/*		composable("groups") { Groups(navController, model) }
 		composable("groupDetail/{groupId}") { entry ->
 			val groupId = entry.arguments?.getString("groupId")?.toInt() ?: 0;
 			GroupDetail(navController, model, groupId)
-		}
+		}*/
 	}
 }
 
 @Composable
 fun LoginScreen(context: Context, model: MainViewModel) {
-	val cred by model.credMan.credentialsFlow.collectAsState()
+	val cred by model.credMan.credentials.collectAsState()
 	var failedDialog by remember { mutableStateOf("") }
 	Column(
 		modifier = Modifier.fillMaxSize(),
@@ -149,7 +149,7 @@ fun LoginScreen(context: Context, model: MainViewModel) {
 		) {
 			TextField(
 				value = cred.user,
-				onValueChange = { model.credMan.credentialsFlow.value = Credentials(it, cred.passwd) },
+				onValueChange = { model.credMan.credentials.value = Credentials(it, cred.passwd) },
 				label = { Text("Username") },
 				modifier = Modifier
 					.fillMaxWidth()
@@ -157,7 +157,7 @@ fun LoginScreen(context: Context, model: MainViewModel) {
 			)
 			TextField(
 				value = cred.passwd,
-				onValueChange = { model.credMan.credentialsFlow.value = Credentials(cred.user, it) },
+				onValueChange = { model.credMan.credentials.value = Credentials(cred.user, it) },
 				label = { Text("Password") },
 				modifier = Modifier
 					.fillMaxWidth()
@@ -362,7 +362,7 @@ fun Settings(navController: NavController) {
 		}
 	}
 }
-
+/*
 @Composable
 fun Groups(navController: NavController, model: MainViewModel) {
 	SettingsScreen("Who I share with", navController) {
@@ -544,6 +544,8 @@ fun GroupDetail(navController: NavController, model: MainViewModel, id: Int) {
 		}
 	}
 }
+*/
+ 
 /*
 @Preview(showBackground = true)
 @Composable

@@ -18,36 +18,49 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-type EncryptedLoc struct {
-	Encrypted [16]byte
-}
-
-type LocWithTime struct {
+type Payload struct {
 	Timestamp time.Time
-	Location  EncryptedLoc
+	Data      []byte
 }
 
-type LocBuffer struct {
-	data [512]LocWithTime
+const QUEUE_SIZE int = 512
+
+type Queue struct {
+	data [QUEUE_SIZE]Payload
 	head int
 }
 
-const MAX_GROUPS = 16
+func (queue *Queue) add(payload Payload) {
+	queue.data[queue.head] = payload
+	queue.head = (queue.head + 1) % QUEUE_SIZE
+}
+
+type Connection struct {
+	from uint64
+	to   uint64
+}
+
+type Connections struct {
+	mutex sync.RWMutex
+	data  map[Connection]*Queue
+}
 
 type User struct {
-	Name   string                 `json:"name"`
-	Token  uint64                 `json:"token"`
-	Salt   []byte                 `json:"salt"`
-	Passwd []byte                 `json:"passwd"`
-	Key    []byte                 `json:"-"`
-	Groups [MAX_GROUPS]*LocBuffer `json:"-"`
+	Name   string `json:"name"`
+	Salt   []byte `json:"salt"`   // salt for password hashing
+	Passwd []byte `json:"passwd"` // hashed password
+
+	Id    uint64 `json:"id"`    // used instead of name in all operations except login
+	Token []byte `json:"token"` // used instead of password in all operations except login
+
+	Key []byte `json:"key"` // public key for encryption
 }
 
 type Users struct {
-	mutex     sync.RWMutex
-	name_map  map[string]*User
-	token_map map[uint64]*User
-	filename  string
+	mutex    sync.RWMutex
+	name_map map[string]*User
+	id_map   map[uint64]*User
+	filename string // path to users.json
 }
 
 func read_file(filename string) ([]byte, error) {
@@ -64,8 +77,8 @@ func load_users(filename string) (*Users, error) {
 	// check if file exists
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
 		return &Users{
-			name_map:  make(map[string]*User),
-			token_map: make(map[uint64]*User),
+			name_map: make(map[string]*User),
+			id_map:   make(map[uint64]*User),
 		}, nil
 	}
 
@@ -81,24 +94,21 @@ func load_users(filename string) (*Users, error) {
 	}
 
 	users := &Users{
-		name_map:  make(map[string]*User),
-		token_map: make(map[uint64]*User),
-		filename:  filename,
+		name_map: make(map[string]*User),
+		id_map:   make(map[uint64]*User),
+		filename: filename,
 	}
 	for _, user := range array {
 		_, found := users.name_map[user.Name]
 		if found {
 			return nil, fmt.Errorf("duplicate user name %s", user.Name)
 		}
-		_, found = users.token_map[user.Token]
+		_, found = users.id_map[user.Id]
 		if found {
 			return nil, fmt.Errorf("duplicate user token %d", user.Token)
 		}
 		users.name_map[user.Name] = user
-		users.token_map[user.Token] = user
-		for i := range user.Groups {
-			user.Groups[i] = &LocBuffer{}
-		}
+		users.id_map[user.Id] = user
 	}
 	return users, nil
 }
@@ -147,46 +157,46 @@ func __gen_salt() ([]byte, error) {
 	return salt, nil
 }
 
-func __gen_token() (uint64, error) {
-	token := make([]byte, 8)
-	_, err := rand.Read(token)
+func __gen_id() (uint64, error) {
+	id := make([]byte, 8)
+	_, err := rand.Read(id)
 	if err != nil {
 		return 0, err
 	}
-	return binary.LittleEndian.Uint64(token), nil
+	return binary.LittleEndian.Uint64(id), nil
 }
 
-func __gen_unique_token(users *Users) (uint64, error) {
+func __gen_unique_id(users *Users) (uint64, error) {
 	users.mutex.RLock()
 	defer users.mutex.RUnlock()
 
-	var token uint64
+	var id uint64
 	var err error
 	var i int
 	for i = 0; i < 10; i++ {
-		token, err = __gen_token()
+		id, err = __gen_id()
 		if err != nil {
 			return 0, err
 		}
-		_, found := users.token_map[token]
+		_, found := users.id_map[id]
 		if !found {
 			break
 		}
 	}
 	if i == 10 {
 		for {
-			token++
-			_, found := users.token_map[token]
+			id++
+			_, found := users.id_map[id]
 			if !found {
 				break
 			}
 		}
 	}
-	return token, nil
+	return id, nil
 }
 
 func __hash_passwd(password []byte, salt []byte) []byte {
-	return pbkdf2.Key(password, salt, 4, 32, sha256.New)
+	return pbkdf2.Key(password, salt, 16, 32, sha256.New)
 }
 
 func (users *Users) add(name string, passwd string) (*User, error) {
@@ -202,23 +212,23 @@ func (users *Users) add(name string, passwd string) (*User, error) {
 
 	hashed_passwd := __hash_passwd([]byte(passwd), salt)
 
-	token, err := __gen_unique_token(users)
+	id, err := __gen_unique_id(users)
 	if err != nil {
 		return nil, err
 	}
 
 	user := &User{
 		Name:   name,
-		Token:  token,
 		Salt:   salt,
 		Passwd: hashed_passwd,
+		Id:     id,
 	}
 	func() {
 		users.mutex.Lock()
 		defer users.mutex.Unlock()
 
 		users.name_map[name] = user
-		users.token_map[token] = user
+		users.id_map[id] = user
 	}()
 
 	err = users.store()
@@ -229,19 +239,15 @@ func (users *Users) add(name string, passwd string) (*User, error) {
 			defer users.mutex.Unlock()
 
 			delete(users.name_map, name)
-			delete(users.token_map, token)
+			delete(users.id_map, id)
 		}()
 		return nil, err
-	}
-
-	for i := range user.Groups {
-		user.Groups[i] = &LocBuffer{}
 	}
 
 	return user, nil
 }
 
-func (users *Users) check_passwd(name string, passwd string) *User {
+func (users *Users) check_passwd(name string, passwd []byte) *User {
 	users.mutex.RLock()
 	defer users.mutex.RUnlock()
 
@@ -250,7 +256,7 @@ func (users *Users) check_passwd(name string, passwd string) *User {
 		return nil
 	}
 
-	hashed_passwd := __hash_passwd([]byte(passwd), user.Salt)
+	hashed_passwd := __hash_passwd(passwd, user.Salt)
 	if !bytes.Equal(hashed_passwd, user.Passwd) {
 		return nil
 	}
@@ -259,12 +265,13 @@ func (users *Users) check_passwd(name string, passwd string) *User {
 
 type LoginInput struct {
 	Name   string `json:"name"`
-	Passwd string `json:"passwd"`
+	Passwd []byte `json:"passwd"`
+	Key    []byte `json:"key"`
 }
 
 type LoginOutput struct {
-	Token uint64 `json:"token"`
-	Key   []byte `json:"key"`
+	Id    uint64 `json:"id"`
+	Token []byte `json:"token"`
 }
 
 var users *Users
@@ -284,6 +291,7 @@ func login_handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO - passwd is byte array now
 	user := users.check_passwd(input.Name, input.Passwd)
 	if user == nil {
 		fmt.Println("login_handler: invalid password")
@@ -291,104 +299,83 @@ func login_handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var key []byte = make([]byte, 16)
-	_, err = rand.Read(key)
+	var token []byte = make([]byte, 16)
+	_, err = rand.Read(token)
 	if err != nil {
-		fmt.Println("login_handler: error generating key:", err)
+		fmt.Println("login_handler: error generating token:", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	var token uint64
+	var id uint64
 	func() {
 		users.mutex.Lock()
 		defer users.mutex.Unlock()
 
-		token = user.Token
-		user.Key = key
+		id = user.Id
+		user.Token = token
+		if !bytes.Equal(input.Key, user.Key) {
+			user.Key = input.Key
+		}
 	}()
 
 	users.store()
 
 	output := LoginOutput{
+		Id:    id,
 		Token: token,
-		Key:   key,
 	}
 	json.NewEncoder(w).Encode(output)
 }
 
-type ReadInput struct {
-	Token uint64 `json:"token"`
-	Group uint8  `json:"group"`
+type GetKeysInput []uint64
+
+type GetKeysOutput []struct {
+	Id  uint64 `json:"id"`
+	Key []byte `json:"key"`
 }
 
-type ReadOutputItem struct {
-	Age uint64      `json:"age"`
-	Loc LocWithTime `json:"loc"`
-}
+func getKeys_handler(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 
-type ReadOutput struct {
-	Locs []ReadOutputItem `json:"locs"`
-}
-
-func read_handler(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 16384)
-
-	var input ReadInput
+	var input GetKeysInput
 	err := json.NewDecoder(r.Body).Decode(&input)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	now := time.Now()
-
 	users.mutex.RLock()
 	defer users.mutex.RUnlock()
 
-	user, found := users.token_map[input.Token]
-	if !found {
-		http.Error(w, "Invalid token", http.StatusNotFound)
-		return
-	}
-
-	if input.Group >= MAX_GROUPS {
-		http.Error(w, "Invalid group", http.StatusBadRequest)
-		return
-	}
-	group := user.Groups[input.Group]
-
-	C := len(group.data)
-	H := group.head
-	result := make([]ReadOutputItem, 0, C)
-
-	for j := 0; j < C; j++ {
-		i := (H - j - 1 + C) % C
-		age := uint64(now.Sub(group.data[i].Timestamp).Seconds())
-		if age > 2*3600 {
-			break
+	output := make(GetKeysOutput, 0, len(input))
+	for _, id := range input {
+		user, found := users.id_map[id]
+		if !found {
+			continue
 		}
-		result = append(result, ReadOutputItem{
-			Age: age,
-			Loc: group.data[i],
+		output = append(output, struct {
+			Id  uint64 `json:"id"`
+			Key []byte `json:"key"`
+		}{
+			Id:  user.Id,
+			Key: user.Key,
 		})
-	}
-
-	output := ReadOutput{
-		Locs: result,
 	}
 	json.NewEncoder(w).Encode(output)
 }
 
+var connections Connections
+
 type WriteInputItem struct {
-	Group uint8        `json:"group"`
-	Loc   EncryptedLoc `json:"loc"`
+	ReceiverId uint64 `json:"receiverId"`
+	Payload    []byte `json:"payload"`
 }
 
 type WriteInput struct {
-	Token uint64           `json:"token"`
-	Key   []byte           `json:"key"`
-	Locs  []WriteInputItem `json:"locs"`
+	Id      uint64           `json:"id"`
+	Token   []byte           `json:"token"`
+	Payload []WriteInputItem `json:"payload"`
 }
 
 func write_handler(w http.ResponseWriter, r *http.Request) {
@@ -403,28 +390,125 @@ func write_handler(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 
-	users.mutex.RLock()
-	defer users.mutex.RUnlock()
+	var user *User
+	func() {
+		users.mutex.RLock()
+		defer users.mutex.RUnlock()
 
-	user, found := users.token_map[input.Token]
-	if !found {
-		http.Error(w, "Invalid token", http.StatusNotFound)
+		var found bool
+		user, found = users.id_map[input.Id]
+		if !found || !bytes.Equal(input.Token, user.Token) {
+			user = nil
+		}
+	}()
+	if user == nil {
+		http.Error(w, "Invalid id/token", http.StatusUnauthorized)
 		return
 	}
 
-	for _, item := range input.Locs {
-		if item.Group >= MAX_GROUPS {
-			http.Error(w, "Invalid group", http.StatusBadRequest)
-			return
-		}
-		group := user.Groups[item.Group]
+	connections.mutex.Lock()
+	defer connections.mutex.Unlock()
 
-		H := group.head
-		group.data[H] = LocWithTime{
-			Timestamp: now,
-			Location:  item.Loc,
+	for _, item := range input.Payload {
+		connection := Connection{
+			from: input.Id,
+			to:   item.ReceiverId,
 		}
-		group.head = (H + 1) % len(group.data)
+		queue, found := connections.data[connection]
+		if !found {
+			queue = &Queue{}
+			connections.data[connection] = queue
+		}
+
+		queue.add(Payload{
+			Timestamp: now,
+			Data:      item.Payload,
+		})
+	}
+}
+
+type ReadInput struct {
+	Id        uint64   `json:"id"`
+	Token     []byte   `json:"token"`
+	Requested []uint64 `json:"requested"`
+}
+
+type ReadOutput struct {
+	Items []ReadOutputItem `json:"items"`
+}
+
+type ReadOutputItem struct {
+	Id      uint64                  `json:"id"`
+	Payload []ReadOutputPayloadItem `json:"payload"`
+}
+
+type ReadOutputPayloadItem struct {
+	Age  uint64 `json:"age"`
+	Data []byte `json:"data"`
+}
+
+func read_handler(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+
+	var input ReadInput
+	err := json.NewDecoder(r.Body).Decode(&input)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now()
+
+	var user *User
+	func() {
+		users.mutex.RLock()
+		defer users.mutex.RUnlock()
+
+		var found bool
+		user, found = users.id_map[input.Id]
+		if !found || !bytes.Equal(input.Token, user.Token) {
+			user = nil
+		}
+	}()
+	if user == nil {
+		http.Error(w, "Invalid id/token", http.StatusUnauthorized)
+		return
+	}
+
+	connections.mutex.RLock()
+	defer connections.mutex.RUnlock()
+
+	output := ReadOutput{
+		Items: make([]ReadOutputItem, 0, len(input.Requested)),
+	}
+	for _, requestedId := range input.Requested {
+		connection := Connection{
+			from: requestedId,
+			to:   input.Id,
+		}
+		queue, found := connections.data[connection]
+		if !found {
+			continue
+		}
+
+		items := make([]ReadOutputPayloadItem, 0, QUEUE_SIZE)
+		for j := 0; j < QUEUE_SIZE; j++ {
+			i := (queue.head - 1 - j + QUEUE_SIZE) % QUEUE_SIZE
+			item := queue.data[i]
+			age := uint64(now.Sub(item.Timestamp).Seconds())
+			if age > 2*3600 {
+				break
+			}
+			items = append(items, ReadOutputPayloadItem{
+				Age:  age,
+				Data: item.Data,
+			})
+		}
+
+		output.Items = append(output.Items, ReadOutputItem{
+			Id:      requestedId,
+			Payload: items,
+		})
 	}
 }
 
@@ -453,7 +537,7 @@ func main() {
 		fmt.Println("Error loading users:", err)
 		return
 	}
-	users.add("admin", "admin")
+	//users.add("admin", "admin")
 	//users.add("x17jiri", "my stupefyingly insecure password")
 	//users.add("zuzka", "my stupefyingly secure password")
 	//err = users.store_users("users.json")
@@ -464,8 +548,9 @@ func main() {
 	//return
 
 	http.HandleFunc("/api/login", login_handler)
-	http.HandleFunc("/api/read", read_handler)
+	http.HandleFunc("/api/getKeys", getKeys_handler)
 	http.HandleFunc("/api/write", write_handler)
+	http.HandleFunc("/api/read", read_handler)
 
 	fmt.Println("Starting server at http://localhost:9443")
 

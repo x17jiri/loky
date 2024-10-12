@@ -17,33 +17,33 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 data class Credentials(
 	var user: String = "",
 	var passwd: String = "",
-)
-
-data class WriteCert(
-	var token: Long = 0,
-	var key: String = "",
+	var enc: Encryptor = Encryptor(),
+	var id: Long = 0,
+	var token: String = "",
 )
 
 class CredentialsManager(dataStore: DataStore<Preferences>) {
 	private var __dataStore = dataStore
-	val credentialsFlow = MutableStateFlow(Credentials())
-	val writeCertFlow: MutableStateFlow<WriteCert?> = MutableStateFlow(null)
+	val credentials = MutableStateFlow(Credentials())
 
+	// TODO: use "Jetpack Security library" and store credentials and keys encrypted
 	private val __userKey: Preferences.Key<String> = stringPreferencesKey("login.user")
 	private val __passwdKey: Preferences.Key<String> = stringPreferencesKey("login.passwd")
 
 	suspend fun init() {
 		var user: String = ""
 		var passwd: String = ""
+		var publicKey: String = ""
+		var privateKey: String = ""
 		__dataStore.data.first().let {
 			user = it[__userKey] ?: ""
 			passwd = it[__passwdKey] ?: ""
 		}
-		credentialsFlow.value = Credentials(user, passwd)
+		credentials.value = Credentials(user, passwd)
 	}
 
 	suspend fun objserve() {
-		credentialsFlow.collect {
+		credentials.collect {
 			__storeCredentials(it.user, it.passwd)
 		}
 	}

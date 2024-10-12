@@ -3,6 +3,8 @@ package com.x17jiri.Loky
 import android.content.Context
 import android.location.Location
 import androidx.annotation.RequiresPermission
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
 import java.io.InputStream
@@ -29,6 +31,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -36,11 +39,12 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 data class LoginOutput(
-    @SerializedName("token") val token: Long,
-    @SerializedName("key") val key: String,
+	@SerializedName("id") val id: Long,
+	@SerializedName("token") val token: String,
 )
 
 class ServerInterface(context: Context) {
+	private val dataStore = context.dataStore
 	private val server = "10.0.0.2:9443"
 	private var trustManager: X509TrustManager
 	private var sslContext: SSLContext
@@ -73,74 +77,60 @@ class ServerInterface(context: Context) {
 		HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.socketFactory)
 		HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }
 	}
-/*
-	fun genCert(username: String): Pair<X509Certificate, PrivateKey> {
-		// Generate RSA key pair
-		val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
-		keyPairGenerator.initialize(2048, SecureRandom())
-		val keyPair = keyPairGenerator.generateKeyPair()
-		val privateKey: PrivateKey = keyPair.private
-		val publicKey: PublicKey = keyPair.public
 
-		// Create a self-signed certificate
-		val issuer = X500Name("CN=$username's cert")
-		val subject = issuer
-
-		// Set the validity period for the certificate
-		val calendar = Calendar.getInstance()
-		val notBefore = calendar.time
-		calendar.add(Calendar.DAY_OF_YEAR, 2000)
-		val notAfter = calendar.time
-
-		// Generate a serial number for the certificate
-		val serialNumber = BigInteger(160, SecureRandom()).abs()
-		val publicKeyInfo = SubjectPublicKeyInfo.getInstance(publicKey.encoded)
-
-		// Create the certificate
-		val certGen = X509v3CertificateBuilder(
-			issuer,
-			serialNumber,
-			notBefore,
-			notAfter,
-			subject,
-			publicKeyInfo,
-		)
-
-		// Sign the certificate with the private key
-		val contentSigner: ContentSigner = JcaContentSignerBuilder("SHA256WithRSAEncryption").build(privateKey)
-		val certificate = certGen.build(contentSigner)
-
-		// Convert to X509Certificate
-		val certConverter = JcaX509CertificateConverter()
-		return Pair(certConverter.getCertificate(certificate), privateKey)
+	companion object {
+		val __publicKeyKey = stringPreferencesKey("key.public")
+		val __privateKeyKey = stringPreferencesKey("key.private")
+		val __keyOwnerKey = stringPreferencesKey("key.owner")
 	}
-*/
+
 	@OptIn(ExperimentalEncodingApi::class)
-	suspend fun login(cred: Credentials): WriteCert? {
+	suspend fun login(cred: Credentials): Credentials? {
 		return withContext(Dispatchers.IO) {
 			val name = cred.user
-			val passwd = cred.passwd
+			// Note: the hash is not used for security.
+			// It is used so we can limit message size on the server side
+			// without limiting the password size.
+			val passwd = Base64.encode(Encryptor.hash(cred.passwd))
+
+			var publicKey = ""
+			var privateKey = ""
+			var keyOwner = ""
+			dataStore.data.first().let {
+				publicKey = it[__publicKeyKey] ?: ""
+				privateKey = it[__privateKeyKey] ?: ""
+				keyOwner = it[__keyOwnerKey] ?: ""
+			}
+			var enc = cred.enc
+			if (publicKey.isNotEmpty() && privateKey.isNotEmpty() && keyOwner == name) {
+				enc.publicKey = Base64.decode(publicKey)
+				enc.privateKey = Base64.decode(privateKey)
+			} else {
+				enc.generateKeys()
+				publicKey = Base64.encode(enc.publicKey!!)
+				privateKey = Base64.encode(enc.privateKey!!)
+				dataStore.edit {
+					it[__publicKeyKey] = publicKey
+					it[__privateKeyKey] = privateKey
+					it[__keyOwnerKey] = name
+				}
+			}
 
 			// The endpoint is: "https://$server/api/login"
 			// Expects a POST request with the following JSON:
 			// 	type LoginInput struct {
 			// 		Name   string `json:"name"`
-			// 		Passwd string `json:"passwd"`
+			// 		Passwd []byte `json:"passwd"`
+			// 		Key    []byte `json:"key"`
 			// 	}
 			// The response is a JSON with the following structure:
 			// 	type LoginOutput struct {
-			//  	Token uint64 `json:"token"`
-			//  	Key   []byte `json:"key"`
+			// 		Id    uint64 `json:"id"`
+			// 		Token []byte `json:"token"`
 			// 	}
 
 			val url = "https://$server/api/login"
-			// TODO - encode password - it could contain bad characters
-			val body = """
-				{
-					"name": "$name",
-					"passwd": "$passwd"
-				}
-			""".trimIndent()
+			val body = """{"name": "$name","passwd": "$passwd","key": "$publicKey"}"""
 
 			val connection = URL(url).openConnection() as HttpsURLConnection
 			connection.requestMethod = "POST"
@@ -154,14 +144,18 @@ class ServerInterface(context: Context) {
 				os.flush()
 			}
 
-			var result: WriteCert? = null
+			var result: Credentials? = null
 			try {
 				connection.connect()
 				val responseCode = connection.responseCode
 				if (responseCode == HttpsURLConnection.HTTP_OK) {
 					val response = connection.inputStream.bufferedReader().use { it.readText() }
 					val loginOutput = gson.fromJson(response, LoginOutput::class.java)
-					result = WriteCert(loginOutput.token, loginOutput.key)
+					result = cred.copy(
+						id = loginOutput.id,
+						token = loginOutput.token,
+						enc = enc
+					)
 				}
 			} finally {
 				connection.disconnect()
@@ -171,10 +165,10 @@ class ServerInterface(context: Context) {
 		}
 	}
 
-	suspend fun sendLoc(writeCert: WriteCert, loc: Location) {
+	suspend fun sendLoc(writeCert: Credentials, loc: Location) {
 		return withContext(Dispatchers.IO) {
-			val token = writeCert.token
-			val key = writeCert
+//			val token = writeCert.token
+//			val key = writeCert
 
 			// The endpoint is: "https://$server/api/write"
 			// Expects a POST request with the following JSON:

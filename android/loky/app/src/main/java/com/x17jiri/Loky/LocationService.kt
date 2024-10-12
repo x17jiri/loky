@@ -28,15 +28,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 object LocationServiceState {
-    private val _isRunning = MutableStateFlow(false)
+	private val _locationFlow = MutableSharedFlow<Location>()
+	val locationFlow: SharedFlow<Location> = _locationFlow.asSharedFlow()
+
+	suspend fun addLocation(location: Location) {
+		_locationFlow.emit(location)
+	}
+
+	private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
     fun setIsRunning(isRunning: Boolean) {
@@ -74,21 +84,12 @@ class LocationService: Service() {
 		locationCallback = object : LocationCallback() {
 			override fun onLocationResult(locationResult: LocationResult) {
 				for (location in locationResult.locations) {
-					// Do something with the location
-
-					// Example: You can emit this location to a Flow or update a Room database
 					scope.launch {
-						processLocation(location)
+						LocationServiceState.addLocation(location)
 					}
 				}
 			}
 		}
-	}
-
-	private suspend fun processLocation(location: Location) {
-		// Implement your location processing logic here
-		// For example, save to database or send to a server
-		Log.d("LocationService", "processLocation.1: $location")
 	}
 
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

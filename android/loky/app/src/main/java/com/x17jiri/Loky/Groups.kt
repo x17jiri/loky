@@ -6,6 +6,9 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.security.SecureRandom
@@ -40,8 +43,7 @@ class SecretKey {
 	}
 }
 
-class GroupData(i: Int) {
-	val id: Int
+class GroupData(public val id: Int) {
 	val name: String get() { return __name }
 	val secretKey: SecretKey get() { return __secretKey }
 	val enabled: Boolean get() { return __enabled }
@@ -50,16 +52,9 @@ class GroupData(i: Int) {
 	var __name: String = ""
 	var __secretKey: SecretKey = SecretKey()
 	var __enabled: Boolean = false
-	val __nameKey: Preferences.Key<String>
-	val __secretKeyKey: Preferences.Key<String>
-	val __enabledKey: Preferences.Key<String>
-
-	init {
-		id = i
-		__nameKey = stringPreferencesKey("group[${i}].name")
-		__secretKeyKey = stringPreferencesKey("group[${i}].secretKey")
-		__enabledKey = stringPreferencesKey("group[${i}].enabled")
-	}
+	val __nameKey = stringPreferencesKey("group[${id}].name")
+	val __secretKeyKey = stringPreferencesKey("group[${id}].secretKey")
+	val __enabledKey = stringPreferencesKey("group[${id}].enabled")
 
 	fun init(name: String) {
 		__name = name
@@ -96,110 +91,122 @@ class GroupData(i: Int) {
 
 const val MAX_GROUPS: Int = 10
 
-data class IDsPlusEnabled(val id: Int, val enabled: Boolean)
+class GroupsManager(dataStore: DataStore<Preferences>) {
+	private var __dataStore = dataStore
 
-class GroupsData(dataStore: DataStore<Preferences>) {
-	var __dataStore = dataStore
-	var __order: MutableList<Int> = mutableListOf()
-	var __order_key: Preferences.Key<String> = stringPreferencesKey("groups_order")
+	private var __order = MutableStateFlow(listOf<Int>())
+	val order: StateFlow<List<Int>> = __order.asStateFlow()
 
-	val n: Int
-		get() { return __order.count() }
+	private var __groups = MutableStateFlow(listOf<GroupData>())
+	val groups: StateFlow<List<GroupData>> = __groups.asStateFlow()
 
-	var __groups: Array<GroupData> = Array<GroupData>(
-		MAX_GROUPS,
-		init = { GroupData(it) }
-	)
+	private val __order_key: Preferences.Key<String> = stringPreferencesKey("groups_order")
 
-	init {
-		runBlocking {
-			val preferences = dataStore.data.first()
+	suspend fun init() {
+		__dataStore.data.first().let { preferences ->
 			val order1 = preferences[__order_key]
 			if (order1 != null) {
 				val order2 = order1.split(",")
 				val order3 = order2.mapNotNull { it.trim().toIntOrNull() }
+				var order = mutableListOf<Int>()
+				var groups = MutableList(MAX_GROUPS) { GroupData(it) }
 				for (i in order3) {
 					if (
 						i >= 0
 						&& i < MAX_GROUPS
-						&& !__groups[i].__used
-						&& __groups[i].load(preferences)
+						&& !groups[i].__used
+						&& groups[i].load(preferences)
 					) {
-						__order.add(i)
+						order.add(i)
 					}
+				}
+				__order.value = order
+				__groups.value = groups
+			}
+		}
+	}
+
+	suspend fun observe_order() {
+		__order.collect { newOrder ->
+			__dataStore.edit { preferences ->
+				preferences[__order_key] = newOrder.joinToString(separator = ",")
+			}
+		}
+	}
+
+	suspend fun objserve_groups() {
+		__groups.collect { newGroups ->
+			__dataStore.edit { preferences ->
+				for (group in newGroups) {
+					group.save(preferences)
 				}
 			}
 		}
 	}
 
-	fun __saveOrder(preferences: MutablePreferences) {
-		preferences[__order_key] = __order.joinToString(separator = ",")
-	}
-
 	fun add(name: String): Int? {
-		val i = __groups.indexOfFirst { !it.__used }
-		if (n >= MAX_GROUPS || i < 0) {
+		var groups = __groups.value.toMutableList()
+		var order = __order.value.toMutableList()
+		// TODO - select one of the free IDs randomly
+		val id = groups.indexOfFirst { !it.__used }
+		if (id < 0 || order.count() >= MAX_GROUPS) {
 			return null
 		}
-		__groups[i].init(name)
-		__order.add(i)
-		runBlocking {
-			__dataStore.edit {
-				__groups[i].save(it)
-				__saveOrder(it)
-			}
-		}
-		return i
+
+		groups[id].init(name)
+		order.add(id)
+
+		__groups.value = groups
+		__order.value = order
+
+		return id
 	}
 
 	fun remove(id: Int) {
-		if (id >= MAX_GROUPS || id < 0) {
+		if (id < 0 || id >= MAX_GROUPS) {
 			return
 		}
-		__groups[id].__used = false
-		__order.removeAll { it == id }
-		runBlocking {
-			__dataStore.edit {
-				__saveOrder(it)
-			}
-		}
+		val groups = __groups.value.toMutableList()
+		val order = __order.value.toMutableList()
+
+		groups[id].__used = false
+		order.removeAll { it == id }
+
+		__groups.value = groups
+		__order.value = order
 	}
 
 	fun update(id: Int, name: String, enabled: Boolean) {
 		if (id < 0 || id >= MAX_GROUPS) {
 			return
 		}
-		__groups[id].__name = name
-		__groups[id].__enabled = enabled
-		runBlocking {
-			__dataStore.edit {
-				__groups[id].save(it)
-			}
-		}
+		val groups = __groups.value.toMutableList()
+
+		groups[id].__name = name
+		groups[id].__enabled = enabled
+
+		__groups.value = groups
 	}
 
 	fun enable(id: Int, enabled: Boolean) {
 		if (id < 0 || id >= MAX_GROUPS) {
 			return
 		}
-		__groups[id].__enabled = enabled
-		runBlocking {
-			__dataStore.edit {
-				__groups[id].save(it)
-			}
-		}
+		val groups = __groups.value.toMutableList()
+
+		groups[id].__enabled = enabled
+
+		__groups.value = groups
 	}
 
-	operator fun get(id: Int): GroupData {
-		return __groups[id]
+	fun get(id: Int): GroupData {
+		return __groups.value[id]
 	}
 
-	fun IDs(): List<Int> {
-		return __order.toList()
-	}
-
-	fun IDsPlusEnabled(): List<IDsPlusEnabled> {
-		return __order.map { IDsPlusEnabled(it, __groups[it].__enabled) }
+	fun set(id: Int, group: GroupData) {
+		val groups = __groups.value.toMutableList()
+		groups[id] = group
+		__groups.value = groups
 	}
 }
 

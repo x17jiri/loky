@@ -1,6 +1,8 @@
 package com.x17jiri.Loky
 
 import android.content.Context
+import android.location.Location
+import androidx.annotation.RequiresPermission
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
 import java.io.InputStream
@@ -45,7 +47,6 @@ class ServerInterface(context: Context) {
 	private var token: Long = 0
 	private var key: ByteArray = ByteArray(16)
 	private val gson = Gson()
-	var step: String = ""
 
 	init {
 		val input: InputStream = context.resources.openRawResource(R.raw.ca)
@@ -115,7 +116,7 @@ class ServerInterface(context: Context) {
 	}
 */
 	@OptIn(ExperimentalEncodingApi::class)
-	suspend fun login(cred: Credentials): Boolean {
+	suspend fun login(cred: Credentials): WriteCert? {
 		return withContext(Dispatchers.IO) {
 			val name = cred.user
 			val passwd = cred.passwd
@@ -133,6 +134,7 @@ class ServerInterface(context: Context) {
 			// 	}
 
 			val url = "https://$server/api/login"
+			// TODO - encode password - it could contain bad characters
 			val body = """
 				{
 					"name": "$name",
@@ -140,49 +142,56 @@ class ServerInterface(context: Context) {
 				}
 			""".trimIndent()
 
-			step = "1"
 			val connection = URL(url).openConnection() as HttpsURLConnection
-			step = "2"
 			connection.requestMethod = "POST"
-			step = "3"
 			connection.setRequestProperty("Content-Type", "application/json")
-			step = "4"
 			connection.setRequestProperty("Accept", "application/json")
-			step = "5"
 			connection.doOutput = true
-			step = "6: outputStream = ${connection.outputStream}"
 
 			connection.outputStream.use { os ->
-				step = "6.1"
 				val input = body.toByteArray(Charsets.UTF_8)
-				step = "6.2"
 				os.write(input, 0, input.size)
-				step = "6.3"
 				os.flush()
-				step = "6.4"
 			}
-			step = "7"
 
-			var result: Boolean = false;
+			var result: WriteCert? = null
 			try {
 				connection.connect()
 				val responseCode = connection.responseCode
-				step = "8: responseCode = $responseCode"
 				if (responseCode == HttpsURLConnection.HTTP_OK) {
 					val response = connection.inputStream.bufferedReader().use { it.readText() }
-					step = "9: response = $response"
 					val loginOutput = gson.fromJson(response, LoginOutput::class.java)
-					step = "10: loginOutput = $loginOutput"
-
-					token = loginOutput.token
-					key = Base64.decode(loginOutput.key)
-					result = true
+					result = WriteCert(loginOutput.token, loginOutput.key)
 				}
 			} finally {
 				connection.disconnect()
 			}
 
 			result
+		}
+	}
+
+	suspend fun sendLoc(writeCert: WriteCert, loc: Location) {
+		return withContext(Dispatchers.IO) {
+			val token = writeCert.token
+			val key = writeCert
+
+			// The endpoint is: "https://$server/api/write"
+			// Expects a POST request with the following JSON:
+			// 	type WriteInputItem struct {
+			// 		Group uint8        `json:"group"`
+			// 		Loc   EncryptedLoc `json:"loc"`
+			// 	}
+			// 	type WriteInput struct {
+			// 		Token uint64           `json:"token"`
+			// 		Key   []byte           `json:"key"`
+			// 		Locs  []WriteInputItem `json:"locs"`
+			// 	}
+			// The response is a HTTP status code
+
+			val url = "https://$server/api/write"
+
+			// TODO
 		}
 	}
 }

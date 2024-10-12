@@ -2,6 +2,7 @@ package com.x17jiri.Loky
 
 import android.content.Context
 import android.content.Intent
+import android.location.Location
 import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -25,7 +26,8 @@ data class AppState(
 )
 
 class MainViewModel(private var context: Context): ViewModel() {
-	val credetials = CredentialsManager(context.dataStore)
+	val credMan = CredentialsManager(context.dataStore)
+	val groupsMan = GroupsManager(context.dataStore)
 	val server = ServerInterface(context)
 	val isLocationServiceRunning = LocationServiceState.isRunning
 
@@ -34,27 +36,57 @@ class MainViewModel(private var context: Context): ViewModel() {
 
 	init {
 		viewModelScope.launch {
-			credetials.init()
+			credMan.init()
+		}
+		viewModelScope.launch {
+			credMan.objserve()
+		}
+		viewModelScope.launch {
+			groupsMan.init()
+		}
+		viewModelScope.launch {
+			groupsMan.observe_order()
+		}
+		viewModelScope.launch {
+			groupsMan.objserve_groups()
 		}
 
-        val cred = credetials.get()
+		val cred = credMan.credentialsFlow.value
 		if (cred.user.isEmpty() || cred.passwd.isEmpty()) {
 			_appState.value = AppState(Screen.Login)
 		} else {
 	        login()
 		}
+
+		viewModelScope.launch {
+			LocationServiceState.locationFlow.collect {
+				sendLoc(it)
+			}
+		}
 	}
 
 	fun login() {
-		val cred: Credentials = credetials.get()
+		val cred: Credentials = credMan.credentialsFlow.value
 		viewModelScope.launch {
 			_appState.value = AppState(Screen.Loading)
-			val isLoggedIn = server.login(cred)
+			val writeCert = server.login(cred)
 
-			_appState.value = if (isLoggedIn) {
-				AppState(currentScreen = Screen.Other)
-			} else {
-				AppState(currentScreen = Screen.Login)
+			credMan.writeCertFlow.value = writeCert
+
+			_appState.value =
+				if (writeCert != null) {
+					AppState(Screen.Other)
+				} else {
+					AppState(Screen.Login)
+				}
+		}
+	}
+
+	fun sendLoc(loc: Location) {
+		val writeCert = credMan.writeCertFlow.value
+		if (writeCert != null) {
+			viewModelScope.launch {
+				server.sendLoc(writeCert, loc)
 			}
 		}
 	}

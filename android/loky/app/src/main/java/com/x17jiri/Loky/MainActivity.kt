@@ -80,6 +80,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.security.SecureRandom
@@ -87,13 +88,8 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 class MainActivity: ComponentActivity() {
-	private lateinit var groupsData: GroupsData
-	private lateinit var serverInterface: ServerInterface
-
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
-		groupsData = GroupsData(dataStore)
-		serverInterface = ServerInterface(this)
 		setContent {
 			X17LokyTheme {
 				val model: MainViewModel = viewModel(factory = MainViewModelFactory(this))
@@ -106,7 +102,7 @@ class MainActivity: ComponentActivity() {
 						LoadingScreen()
 
 					appState.currentScreen is Screen.Other ->
-						NavigationGraph(this, groupsData, model)
+						NavigationGraph(this, model)
 				}
 			}
 		}
@@ -124,25 +120,23 @@ fun LoadingScreen() {
 }
 
 @Composable
-fun NavigationGraph(context: Context, groupsData: GroupsData, model: MainViewModel) {
+fun NavigationGraph(context: Context, model: MainViewModel) {
 	Log.d("Locodile", "Building nav graph")
 	val navController = rememberNavController()
 	NavHost(navController = navController, startDestination = "map") {
 		composable("map") { MapView(navController, model) }
 		composable("settings") { Settings(navController) }
-		composable("groups") { Groups(navController, groupsData) }
+		composable("groups") { Groups(navController, model) }
 		composable("groupDetail/{groupId}") { entry ->
 			val groupId = entry.arguments?.getString("groupId")?.toInt() ?: 0;
-			GroupDetail(navController, groupsData, groupId)
+			GroupDetail(navController, model, groupId)
 		}
 	}
 }
 
 @Composable
 fun LoginScreen(context: Context, model: MainViewModel) {
-	val cred = model.credetials.get()
-	var username by remember { mutableStateOf(cred.user) }
-	var password by remember { mutableStateOf(cred.passwd) }
+	val cred by model.credMan.credentialsFlow.collectAsState()
 	var failedDialog by remember { mutableStateOf("") }
 	Column(
 		modifier = Modifier.fillMaxSize(),
@@ -154,22 +148,16 @@ fun LoginScreen(context: Context, model: MainViewModel) {
 			verticalArrangement = Arrangement.Center,
 		) {
 			TextField(
-				value = username,
-				onValueChange = {
-					username = it
-					model.credetials.set(username, password)
-				},
+				value = cred.user,
+				onValueChange = { model.credMan.credentialsFlow.value = Credentials(it, cred.passwd) },
 				label = { Text("Username") },
 				modifier = Modifier
 					.fillMaxWidth()
 					.padding(10.dp)
 			)
 			TextField(
-				value = password,
-				onValueChange = {
-					password = it
-					model.credetials.set(username, password)
-				},
+				value = cred.passwd,
+				onValueChange = { model.credMan.credentialsFlow.value = Credentials(cred.user, it) },
 				label = { Text("Password") },
 				modifier = Modifier
 					.fillMaxWidth()
@@ -180,7 +168,7 @@ fun LoginScreen(context: Context, model: MainViewModel) {
 				onClick = {
 					model.login()
 				},
-				enabled = username != "" && password != "",
+				enabled = cred.user != "" && cred.passwd != "",
 				content = { Text("Login") },
 				modifier = Modifier
 					.fillMaxWidth()
@@ -376,17 +364,18 @@ fun Settings(navController: NavController) {
 }
 
 @Composable
-fun Groups(navController: NavController, groupsData: GroupsData) {
+fun Groups(navController: NavController, model: MainViewModel) {
 	SettingsScreen("Who I share with", navController) {
-		var list by remember { mutableStateOf(groupsData.IDsPlusEnabled()) }
+		val groups by model.groupsMan.groups.collectAsState()
+		val order by model.groupsMan.order.collectAsState()
 		var groupToDel by remember { mutableStateOf(-1) }
 		Box(modifier = Modifier.fillMaxSize()) {
 			LazyColumn(
 				modifier = Modifier.fillMaxWidth()
 			) {
-				items(list.size) { __i ->
-					val id = list[__i].id
-					val enabled = list[__i].enabled
+				items(order.size) { __i ->
+					val id = groups[__i].id
+					val enabled = groups[__i].enabled
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
 						modifier = Modifier
@@ -397,15 +386,12 @@ fun Groups(navController: NavController, groupsData: GroupsData) {
 						Box {
 							Switch(
 								checked = enabled,
-								onCheckedChange = {
-									groupsData.enable(id, it)
-									list = groupsData.IDsPlusEnabled()
-								},
+								onCheckedChange = { model.groupsMan.enable(id, it) },
 								modifier = Modifier.padding(start = 10.dp, end = 10.dp),
 							)
 						}
 						Text(
-							text = groupsData[id].name,
+							text = groups[id].name,
 							modifier = Modifier.weight(1.0f)
 						)
 						IconButton(
@@ -422,9 +408,7 @@ fun Groups(navController: NavController, groupsData: GroupsData) {
 			var failedDialog by remember { mutableStateOf("") }
 			FloatingActionButton(
 				onClick = {
-					if (groupsData.add("New Group") != null) {
-						list = groupsData.IDsPlusEnabled()
-					} else {
+					if (model.groupsMan.add("New Group") == null) {
 						failedDialog = "Maximum number of groups reached"
 					}
 				},
@@ -439,12 +423,9 @@ fun Groups(navController: NavController, groupsData: GroupsData) {
 			}
 			if (groupToDel >= 0) {
 				ConfirmDialog(
-					"Delete group ${groupsData[groupToDel].name}?",
+					"Delete group ${groups[groupToDel].name}?",
 					onDismiss = { groupToDel = -1; },
-					onConfirm = {
-						groupsData.remove(groupToDel)
-						list = groupsData.IDsPlusEnabled()
-					}
+					onConfirm = { model.groupsMan.remove(groupToDel) }
 				)
 			}
 			if (failedDialog != "") {
@@ -459,12 +440,13 @@ fun Groups(navController: NavController, groupsData: GroupsData) {
 
 @OptIn(ExperimentalEncodingApi::class)
 @Composable
-fun GroupDetail(navController: NavController, groupsData: GroupsData, id: Int) {
+fun GroupDetail(navController: NavController, model: MainViewModel, id: Int) {
 	SettingsScreen("Group Detail", navController) {
 		Column(
 			modifier = Modifier.verticalScroll(rememberScrollState())
 		) {
-			var groupName by remember { mutableStateOf(groupsData[id].name) }
+			val groups by model.groupsMan.groups.collectAsState()
+			var groupName by remember { mutableStateOf(groups[id].name) }
 			TextField(
 				value = groupName,
 				onValueChange = { groupName = it },
@@ -476,7 +458,7 @@ fun GroupDetail(navController: NavController, groupsData: GroupsData, id: Int) {
 
 			var isSecretVisible by remember { mutableStateOf(false) }
 			TextField(
-				value = if (isSecretVisible) { groupsData[id].secretKey.text } else { "*****" },
+				value = if (isSecretVisible) { groups[id].secretKey.text } else { "*****" },
 				enabled = false,
 				onValueChange = {},
 				label = { Text("Secret Data") },
@@ -507,7 +489,7 @@ fun GroupDetail(navController: NavController, groupsData: GroupsData, id: Int) {
 				},
 			)
 
-			var sharingEnabled by remember { mutableStateOf(groupsData[id].enabled) }
+			var sharingEnabled by remember { mutableStateOf(groups[id].enabled) }
 			Row(
 				verticalAlignment = Alignment.CenterVertically,
 				modifier = Modifier
@@ -536,14 +518,14 @@ fun GroupDetail(navController: NavController, groupsData: GroupsData, id: Int) {
 			) {
 				Button(
 					onClick = {
-						groupsData.update(id, groupName, sharingEnabled)
+						model.groupsMan.update(id, groupName, sharingEnabled)
 						navController.popBackStack()
 					},
 					enabled = (
 						groupName != ""
 						&& (
-							groupName != groupsData[id].name
-							|| sharingEnabled != groupsData[id].enabled
+							groupName != groups[id].name
+							|| sharingEnabled != groups[id].enabled
 						)
 					),
 					content = { Text("Save") },

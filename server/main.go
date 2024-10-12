@@ -273,8 +273,8 @@ func login_handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("login_handler")
 	r.Body = http.MaxBytesReader(w, r.Body, 16384)
 
-	/*	bodyBytes, err := io.ReadAll(r.Body)
-		fmt.Println("login_handler: body = ", string(bodyBytes))*/
+	//	bodyBytes, err := io.ReadAll(r.Body)
+	//	fmt.Println("login_handler: body = ", string(bodyBytes))
 
 	var input LoginInput
 	err := json.NewDecoder(r.Body).Decode(&input)
@@ -387,6 +387,7 @@ type WriteInputItem struct {
 
 type WriteInput struct {
 	Token uint64           `json:"token"`
+	Key   []byte           `json:"key"`
 	Locs  []WriteInputItem `json:"locs"`
 }
 
@@ -464,6 +465,7 @@ func main() {
 
 	http.HandleFunc("/api/login", login_handler)
 	http.HandleFunc("/api/read", read_handler)
+	http.HandleFunc("/api/write", write_handler)
 
 	fmt.Println("Starting server at http://localhost:9443")
 

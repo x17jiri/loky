@@ -2,6 +2,7 @@ package com.x17jiri.Loky
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.ColorSpace.Rgb
 import android.graphics.Paint.Align
 import android.os.Bundle
 import android.util.Log
@@ -55,6 +56,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -65,6 +67,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -89,11 +92,16 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 class MainActivity: ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
+		Log.d("Locodile", "onCreate.1")
 		super.onCreate(savedInstanceState)
+		Log.d("Locodile", "onCreate.2")
 		setContent {
 			X17LokyTheme {
+				Log.d("Locodile", "onCreate.3")
 				val model: MainViewModel = viewModel(factory = MainViewModelFactory(this))
+				Log.d("Locodile", "onCreate.4")
 				val appState by model.appState.collectAsState()
+				Log.d("Locodile", "onCreate.5")
 				when {
 					appState.currentScreen is Screen.Login ->
 						LoginScreen(this, model)
@@ -125,7 +133,7 @@ fun NavigationGraph(context: Context, model: MainViewModel) {
 	val navController = rememberNavController()
 	NavHost(navController = navController, startDestination = "map") {
 		composable("map") { MapView(navController, model) }
-		composable("settings") { Settings(navController) }
+		composable("contacts") { Contacts(navController, model) }
 /*		composable("groups") { Groups(navController, model) }
 		composable("groupDetail/{groupId}") { entry ->
 			val groupId = entry.arguments?.getString("groupId")?.toInt() ?: 0;
@@ -218,7 +226,7 @@ fun MapView(navController: NavController, model: MainViewModel) {
 					Text("Share location")
 				}
 				Box {
-					IconButton(onClick = { navController.navigate("settings") }) {
+					IconButton(onClick = { navController.navigate("contacts") }) {
 						Icon(
 							imageVector = Icons.Default.Settings,
 							contentDescription = "Settings",
@@ -336,82 +344,120 @@ fun MessageDialog(
 }
 
 @Composable
-fun Settings(navController: NavController) {
-	SettingsScreen("Settings", navController) {
-		Column(
-			modifier = Modifier.verticalScroll(rememberScrollState())
-		) {
-			Row(
-				verticalAlignment = Alignment.CenterVertically,
-				modifier = Modifier
-					.fillMaxWidth()
-					.clickable { navController.navigate("groups") }
-					.padding(10.dp)
+fun AddContactDialog(
+	onDismiss: () -> Unit,
+	onConfirm: (String) -> Unit
+) {
+	var name by remember { mutableStateOf("") }
+	Dialog(onDismissRequest = onDismiss) {
+		Surface {
+			Column(
+				modifier = Modifier.padding(20.dp).fillMaxWidth()
 			) {
-				Text("Who I share with")
-			}
-			Row(
-				verticalAlignment = Alignment.CenterVertically,
-				modifier = Modifier
-					.fillMaxWidth()
-					.clickable { navController.navigate("groups") }
-					.padding(10.dp)
-			) {
-				Text("Who shares with me")
+				Text("Add contact")
+				Spacer(modifier = Modifier.height(20.dp))
+				TextField(
+					value = name,
+					onValueChange = { name = it },
+					label = { Text("Name") },
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(10.dp)
+				)
+				Spacer(modifier = Modifier.height(20.dp))
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.End
+				) {
+					TextButton(onClick = onDismiss) {
+						Text("Cancel")
+					}
+					Spacer(modifier = Modifier.width(10.dp))
+					TextButton(
+						onClick = {
+							onConfirm(name)
+							onDismiss()
+						}
+					) {
+						Text("Add")
+					}
+				}
 			}
 		}
 	}
 }
-/*
+
 @Composable
-fun Groups(navController: NavController, model: MainViewModel) {
-	SettingsScreen("Who I share with", navController) {
-		val groups by model.groupsMan.groups.collectAsState()
-		val order by model.groupsMan.order.collectAsState()
-		var groupToDel by remember { mutableStateOf(-1) }
+fun Contacts(navController: NavController, model: MainViewModel) {
+	SettingsScreen("Contacts", navController) {
+		val contacts by model.contactsMan.contacts.collectAsState()
+		var groupToDel by remember { mutableStateOf<Long>(-1) }
+		var addDialog by remember { mutableStateOf(false) }
 		Box(modifier = Modifier.fillMaxSize()) {
 			LazyColumn(
 				modifier = Modifier.fillMaxWidth()
 			) {
-				items(order.size) { __i ->
-					val id = groups[__i].id
-					val enabled = groups[__i].enabled
+				items(contacts.size) { __i ->
+					val id = contacts[__i].id
+					val name = contacts[__i].name
+					val send = contacts[__i].send
+					val recv = contacts[__i].recv
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
 						modifier = Modifier
 							.fillMaxWidth()
-							.clickable { navController.navigate("groupDetail/${id}") }
 							.padding(10.dp)
 					) {
-						Box {
+						Column(
+							horizontalAlignment = Alignment.CenterHorizontally
+						) {
+							Text(
+								text = "Send",
+								style = TextStyle(fontSize = 8.sp)
+							)
 							Switch(
-								checked = enabled,
-								onCheckedChange = { model.groupsMan.enable(id, it) },
+								checked = send,
+								onCheckedChange = { model.contactsMan.setSend(id, it) },
+								colors = SwitchDefaults.colors(
+									checkedTrackColor = Color(0.75f, 0.5f, 0.5f),
+								),
 								modifier = Modifier.padding(start = 10.dp, end = 10.dp),
 							)
 						}
 						Text(
-							text = groups[id].name,
+							text = name,
 							modifier = Modifier.weight(1.0f)
 						)
-						IconButton(
+						Column(
+							horizontalAlignment = Alignment.CenterHorizontally
+						) {
+							Text(
+								text = "Receive",
+								style = TextStyle(fontSize = 8.sp)
+							)
+							Switch(
+								checked = recv,
+								onCheckedChange = { model.contactsMan.setRecv(id, it) },
+								colors = SwitchDefaults.colors(
+									checkedTrackColor = Color(0.5f, 0.75f, 0.5f),
+								),
+								modifier = Modifier.padding(start = 10.dp, end = 10.dp),
+							)
+						}
+/*						IconButton(
 							onClick = { groupToDel = id }
 						) {
 							Icon(
 								Icons.Filled.Delete, // Trash (delete) icon
 								contentDescription = "Delete Item"
 							)
-						}
+						}*/
 					}
 				}
 			}
 			var failedDialog by remember { mutableStateOf("") }
 			FloatingActionButton(
-				onClick = {
-					if (model.groupsMan.add("New Group") == null) {
-						failedDialog = "Maximum number of groups reached"
-					}
-				},
+				onClick = { addDialog = true },
 				modifier = Modifier
 					.align(Alignment.BottomEnd)
 					.padding(20.dp),
@@ -421,11 +467,18 @@ fun Groups(navController: NavController, model: MainViewModel) {
 					contentDescription = "Add"
 				)
 			}
+			/*
 			if (groupToDel >= 0) {
 				ConfirmDialog(
 					"Delete group ${groups[groupToDel].name}?",
 					onDismiss = { groupToDel = -1; },
 					onConfirm = { model.groupsMan.remove(groupToDel) }
+				)
+			}*/
+			if (addDialog) {
+				AddContactDialog(
+					onDismiss = { addDialog = false },
+					onConfirm = { /* TODO */ }
 				)
 			}
 			if (failedDialog != "") {
@@ -437,122 +490,12 @@ fun Groups(navController: NavController, model: MainViewModel) {
 		}
 	}
 }
-
-@OptIn(ExperimentalEncodingApi::class)
-@Composable
-fun GroupDetail(navController: NavController, model: MainViewModel, id: Int) {
-	SettingsScreen("Group Detail", navController) {
-		Column(
-			modifier = Modifier.verticalScroll(rememberScrollState())
-		) {
-			val groups by model.groupsMan.groups.collectAsState()
-			var groupName by remember { mutableStateOf(groups[id].name) }
-			TextField(
-				value = groupName,
-				onValueChange = { groupName = it },
-				label = { Text("Group Name") },
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(10.dp)
-			)
-
-			var isSecretVisible by remember { mutableStateOf(false) }
-			TextField(
-				value = if (isSecretVisible) { groups[id].secretKey.text } else { "*****" },
-				enabled = false,
-				onValueChange = {},
-				label = { Text("Secret Data") },
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(10.dp),
-				trailingIcon = {
-					val image =
-						if (isSecretVisible) {
-							Icons.Filled.Visibility
-						} else {
-							Icons.Default.VisibilityOff
-						}
-					IconButton(onClick = { isSecretVisible = !isSecretVisible }) {
-						Icon(
-							imageVector = image,
-							contentDescription = "Toggle Secret Visibility"
-						)
-					}
-				},
-				leadingIcon = {
-					IconButton(onClick = { /*TODO*/ }) {
-						Icon(
-							imageVector = Icons.Filled.ContentCopy,
-							contentDescription = "Copy Secret to Clipboard"
-						)
-					}
-				},
-			)
-
-			var sharingEnabled by remember { mutableStateOf(groups[id].enabled) }
-			Row(
-				verticalAlignment = Alignment.CenterVertically,
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(10.dp)
-			) {
-				Box {
-					Switch(
-						checked = sharingEnabled,
-						onCheckedChange = { sharingEnabled = it },
-						modifier = Modifier.padding(start = 10.dp, end = 10.dp),
-					)
-				}
-				Box(modifier = Modifier.weight(1.0f)) {
-					Text("Share location")
-				}
-			}
-
-			Spacer(modifier = Modifier.height(20.dp))
-
-			Row(
-				verticalAlignment = Alignment.CenterVertically,
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(10.dp)
-			) {
-				Button(
-					onClick = {
-						model.groupsMan.update(id, groupName, sharingEnabled)
-						navController.popBackStack()
-					},
-					enabled = (
-						groupName != ""
-						&& (
-							groupName != groups[id].name
-							|| sharingEnabled != groups[id].enabled
-						)
-					),
-					content = { Text("Save") },
-					modifier = Modifier
-						.weight(1.0f)
-						.padding(10.dp)
-				)
-				Button(
-					onClick = { navController.popBackStack() },
-					content = { Text("Cancel") },
-					modifier = Modifier
-						.weight(1.0f)
-						.padding(10.dp)
-				)
-			}
-		}
-	}
-}
-*/
- 
 /*
 @Preview(showBackground = true)
 @Composable
-fun MapViewPreview() {
+fun NewUserDialogPreview() {
 	X17LokyTheme {
-		val navController = rememberNavController()
-		MapView(navController)
+		AddContactDialog({}, { _, _ -> })
 	}
 }*/
 /*

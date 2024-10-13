@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,29 +32,37 @@ class MainViewModel(private var context: Context): ViewModel() {
 	val server = ServerInterface(context)
 	val isLocationServiceRunning = LocationServiceState.isRunning
 	val database = AppDatabase.getInstance(context)
-	val contactsMan = ContactsManager(database)
+	val contactsMan = ContactsManager(database, viewModelScope)
 
     private val _appState = MutableStateFlow(AppState())
     val appState: StateFlow<AppState> = _appState.asStateFlow()
 
 	init {
+		Log.d("Locodile", "MainViewModel init.1")
 		runBlocking {
 			credMan.init()
 		}
+		Log.d("Locodile", "MainViewModel init.2")
 		viewModelScope.launch {
 			credMan.objserve()
 		}
-		viewModelScope.launch {
+		Log.d("Locodile", "MainViewModel init.3")
+		viewModelScope.launch(Dispatchers.IO) {
 			contactsMan.init()
 		}
+		Log.d("Locodile", "MainViewModel init.4")
 
 		val cred = credMan.credentials.value
+		Log.d("Locodile", "MainViewModel init.5")
 		if (cred.user.isEmpty() || cred.passwd.isEmpty()) {
+			Log.d("Locodile", "MainViewModel init.6")
 			_appState.value = AppState(Screen.Login)
 		} else {
+			Log.d("Locodile", "MainViewModel init.7")
 	        login()
 		}
 
+		Log.d("Locodile", "MainViewModel init.8")
 		viewModelScope.launch {
 			LocationServiceState.locationFlow.collect {
 				sendLoc(it)

@@ -2,6 +2,7 @@ package com.x17jiri.Loky
 
 import android.content.Context
 import android.location.Location
+import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -81,6 +82,7 @@ class ServerInterface(context: Context) {
 	companion object {
 		val __publicKeyKey = stringPreferencesKey("key.public")
 		val __privateKeyKey = stringPreferencesKey("key.private")
+		val __keyHashKey = stringPreferencesKey("key.hash")
 		val __keyOwnerKey = stringPreferencesKey("key.owner")
 	}
 
@@ -92,29 +94,40 @@ class ServerInterface(context: Context) {
 			// It is used so we can limit message size on the server side
 			// without limiting the password size.
 			val passwd = Base64.encode(Encryptor.hash(cred.passwd))
+			Log.d("Locodile", "ServerInterface.login: $name, $passwd")
 
 			var publicKey = ""
 			var privateKey = ""
+			var keyHash = ""
 			var keyOwner = ""
 			dataStore.data.first().let {
 				publicKey = it[__publicKeyKey] ?: ""
 				privateKey = it[__privateKeyKey] ?: ""
+				keyHash = it[__keyHashKey] ?: ""
 				keyOwner = it[__keyOwnerKey] ?: ""
 			}
 			var enc = cred.enc
-			if (publicKey.isNotEmpty() && privateKey.isNotEmpty() && keyOwner == name) {
+			if (
+				publicKey.isNotEmpty()
+				&& privateKey.isNotEmpty()
+				&& keyHash.isNotEmpty()
+				&& keyOwner == name
+			) {
 				enc.publicKey = Base64.decode(publicKey)
 				enc.privateKey = Base64.decode(privateKey)
 			} else {
 				enc.generateKeys()
 				publicKey = Base64.encode(enc.publicKey!!)
 				privateKey = Base64.encode(enc.privateKey!!)
+				keyHash = Base64.encode(Encryptor.hash(publicKey))
 				dataStore.edit {
 					it[__publicKeyKey] = publicKey
 					it[__privateKeyKey] = privateKey
+					it[__keyHashKey] = keyHash
 					it[__keyOwnerKey] = name
 				}
 			}
+			Log.d("Locodile", "ServerInterface.login: public key: $publicKey")
 
 			// The endpoint is: "https://$server/api/login"
 			// Expects a POST request with the following JSON:
@@ -130,27 +143,32 @@ class ServerInterface(context: Context) {
 			// 	}
 
 			val url = "https://$server/api/login"
-			val body = """{"name": "$name","passwd": "$passwd","key": "$publicKey"}"""
+			val body = """{"name":"$name","passwd":"$passwd","key":"$publicKey","keyHash":"$keyHash"}"""
 
 			val connection = URL(url).openConnection() as HttpsURLConnection
 			connection.requestMethod = "POST"
 			connection.setRequestProperty("Content-Type", "application/json")
 			connection.setRequestProperty("Accept", "application/json")
 			connection.doOutput = true
+			Log.d("Locodile", "ServerInterface.login: body: $body")
 
 			connection.outputStream.use { os ->
 				val input = body.toByteArray(Charsets.UTF_8)
 				os.write(input, 0, input.size)
 				os.flush()
 			}
+			Log.d("Locodile", "ServerInterface.login: connection: $connection")
 
 			var result: Credentials? = null
 			try {
 				connection.connect()
 				val responseCode = connection.responseCode
+				Log.d("Locodile", "ServerInterface.login: response code: $responseCode")
 				if (responseCode == HttpsURLConnection.HTTP_OK) {
 					val response = connection.inputStream.bufferedReader().use { it.readText() }
+					Log.d("Locodile", "ServerInterface.login: response: $response")
 					val loginOutput = gson.fromJson(response, LoginOutput::class.java)
+					Log.d("Locodile", "ServerInterface.login: id: ${loginOutput.id}, token: ${loginOutput.token}")
 					result = cred.copy(
 						id = loginOutput.id,
 						token = loginOutput.token,

@@ -1,7 +1,9 @@
 package com.x17jiri.Loky
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.ColorSpace.Rgb
 import android.graphics.Paint.Align
 import android.os.Bundle
@@ -44,7 +46,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import com.x17jiri.Loky.ui.theme.X17LokyTheme
-import com.google.maps.android.compose.*;
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Button
@@ -61,91 +62,125 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat.startForegroundService
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.mapbox.android.core.permissions.PermissionsManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.security.SecureRandom
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import com.mapbox.geojson.Point
+import com.mapbox.maps.extension.compose.MapEffect
+import com.mapbox.maps.extension.compose.MapboxMap
+import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
+import com.mapbox.maps.extension.compose.annotation.generated.PolylineAnnotation
+import com.mapbox.maps.plugin.PuckBearing
+import com.mapbox.maps.plugin.locationcomponent.createDefault2DPuck
+import com.mapbox.maps.plugin.locationcomponent.location
+import java.net.URLDecoder
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 class MainActivity: ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
-		Log.d("Locodile", "onCreate.1")
 		super.onCreate(savedInstanceState)
-		Log.d("Locodile", "onCreate.2")
 		setContent {
 			X17LokyTheme {
-				Log.d("Locodile", "onCreate.3")
-				val model: MainViewModel = viewModel(factory = MainViewModelFactory(this))
-				Log.d("Locodile", "onCreate.4")
-				val appState by model.appState.collectAsState()
-				Log.d("Locodile", "onCreate.5")
-				when {
-					appState.currentScreen is Screen.Login ->
-						LoginScreen(this, model)
-
-					appState.currentScreen is Screen.Loading ->
-						LoadingScreen()
-
-					appState.currentScreen is Screen.Other ->
-						NavigationGraph(this, model)
-				}
+				NavigationGraph(this, lifecycleScope)
 			}
 		}
 	}
 }
 
 @Composable
-fun LoadingScreen() {
+fun NavigationGraph(context: Context, scope: CoroutineScope) {
+	val model: MainViewModel = viewModel(factory = MainViewModelFactory(context))
+	val navController = rememberNavController()
+	NavHost(navController = navController, startDestination = "loading") {
+		composable("loading")  { LoadingScreen(navController, model, scope) }
+		composable("login/{message}") {
+			var msg = it.arguments?.getString("message") ?: ""
+			msg = URLDecoder.decode(msg, StandardCharsets.UTF_8.toString())
+			LoginScreen(context, model, navController, msg)
+		}
+		composable("map") { MapView(navController, model, context) }
+		composable("contacts") { Contacts(navController, model, scope) }
+	}
+}
+
+@Composable
+fun LoadingScreen(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
 	Box(
 		modifier = Modifier.fillMaxSize(),
 		contentAlignment = Alignment.Center
 	) {
 		Text("Loading...", fontSize = 24.sp)
+		LaunchedEffect(Unit) {
+			val cred = model.credMan.credentials.value
+			if (cred.user.isNotEmpty() && cred.passwd.isNotEmpty()) {
+				scope.launch(Dispatchers.IO) {
+					model.server.login(cred).fold(
+						onSuccess = {
+							Log.d("Locodile", "storing credentials: ${it}")
+							model.credMan.credentials.value = it
+							withContext(Dispatchers.Main) {
+								navController.navigate("map") {
+									popUpTo(navController.graph.startDestinationId) { inclusive = true }
+								}
+							}
+						},
+						onFailure = {
+							Log.d("Locodile", "LoadingScreen: login failed: ${it.message}")
+							withContext(Dispatchers.Main) {
+								var msg = it.toString()
+								msg = URLEncoder.encode(msg, StandardCharsets.UTF_8.toString())
+								navController.navigate("login/${msg}")
+							}
+						}
+					)
+				}
+			} else {
+				Log.d("Locodile", "LoadingScreen: LaunchedEffect.5")
+				navController.navigate("login/")
+			}
+		}
 	}
 }
 
 @Composable
-fun NavigationGraph(context: Context, model: MainViewModel) {
-	Log.d("Locodile", "Building nav graph")
-	val navController = rememberNavController()
-	NavHost(navController = navController, startDestination = "map") {
-		composable("map") { MapView(navController, model) }
-		composable("contacts") { Contacts(navController, model) }
-/*		composable("groups") { Groups(navController, model) }
-		composable("groupDetail/{groupId}") { entry ->
-			val groupId = entry.arguments?.getString("groupId")?.toInt() ?: 0;
-			GroupDetail(navController, model, groupId)
-		}*/
-	}
-}
-
-@Composable
-fun LoginScreen(context: Context, model: MainViewModel) {
+fun LoginScreen(context: Context, model: MainViewModel, navController: NavController, message: String) {
 	val cred by model.credMan.credentials.collectAsState()
-	var failedDialog by remember { mutableStateOf("") }
+	var failedDialog by remember { mutableStateOf(message) }
 	Column(
 		modifier = Modifier.fillMaxSize(),
 	) {
@@ -174,7 +209,9 @@ fun LoginScreen(context: Context, model: MainViewModel) {
 			)
 			Button(
 				onClick = {
-					model.login()
+					navController.navigate("loading") {
+						popUpTo(navController.graph.startDestinationId) { inclusive = true }
+					}
 				},
 				enabled = cred.user != "" && cred.passwd != "",
 				content = { Text("Login") },
@@ -198,7 +235,7 @@ fun LoginScreen(context: Context, model: MainViewModel) {
 }
 
 @Composable
-fun MapView(navController: NavController, model: MainViewModel) {
+fun MapView(navController: NavController, model: MainViewModel, context: Context) {
 	Scaffold(
 		modifier = Modifier
 			.fillMaxSize()
@@ -242,10 +279,32 @@ fun MapView(navController: NavController, model: MainViewModel) {
 					.weight(1.0f)
 					.fillMaxWidth()
 			) {
-				GoogleMap(
-					modifier = Modifier.fillMaxSize()
-					//onMapLoaded = { isMapLoaded = true }
-				)
+				var mapViewportState = rememberMapViewportState {}
+				MapboxMap(
+					Modifier.fillMaxSize(),
+					mapViewportState = mapViewportState,
+				) {
+					MapEffect(Unit) { mapView ->
+						mapView.location.updateSettings {
+							locationPuck = createDefault2DPuck(withBearing = true)
+							enabled = true
+							puckBearing = PuckBearing.COURSE
+							puckBearingEnabled = true
+						}
+						mapViewportState.transitionToFollowPuckState()
+					}
+					// Insert a PolylineAnnotation composable function with the geographic coordinates to the content of MapboxMap composable function.
+					PolylineAnnotation(
+						points = listOf(
+							Point.fromLngLat(17.94, 59.25),
+							Point.fromLngLat(18.18, 59.37)
+						)
+					) {
+						// Set options for the resulting line layer.
+						lineColor = Color(0xffee4e8b)
+						lineWidth = 5.0
+					}
+				}
 			}
 		}
 	}
@@ -359,7 +418,7 @@ fun AddContactDialog(
 				TextField(
 					value = name,
 					onValueChange = { name = it },
-					label = { Text("Name") },
+					label = { Text("User Name") },
 					modifier = Modifier
 						.fillMaxWidth()
 						.padding(10.dp)
@@ -374,10 +433,8 @@ fun AddContactDialog(
 					}
 					Spacer(modifier = Modifier.width(10.dp))
 					TextButton(
-						onClick = {
-							onConfirm(name)
-							onDismiss()
-						}
+						enabled = name != "",
+						onClick = { onConfirm(name) }
 					) {
 						Text("Add")
 					}
@@ -388,11 +445,30 @@ fun AddContactDialog(
 }
 
 @Composable
-fun Contacts(navController: NavController, model: MainViewModel) {
+fun InfoDialg(text: String) {
+	Dialog(onDismissRequest = { }) {
+		Surface {
+			Column(
+				modifier = Modifier.padding(20.dp).fillMaxWidth()
+			) {
+				Text(text)
+			}
+		}
+	}
+}
+
+enum class AddContactState {
+	Hidden,
+	TextInput,
+	Checking,
+}
+
+@Composable
+fun Contacts(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
 	SettingsScreen("Contacts", navController) {
 		val contacts by model.contactsMan.contacts.collectAsState()
-		var groupToDel by remember { mutableStateOf<Long>(-1) }
-		var addDialog by remember { mutableStateOf(false) }
+		var itemToDel by remember { mutableStateOf<Long?>(null) }
+		var addContactState by remember { mutableStateOf(AddContactState.Hidden) }
 		Box(modifier = Modifier.fillMaxSize()) {
 			LazyColumn(
 				modifier = Modifier.fillMaxWidth()
@@ -424,10 +500,6 @@ fun Contacts(navController: NavController, model: MainViewModel) {
 								modifier = Modifier.padding(start = 10.dp, end = 10.dp),
 							)
 						}
-						Text(
-							text = name,
-							modifier = Modifier.weight(1.0f)
-						)
 						Column(
 							horizontalAlignment = Alignment.CenterHorizontally
 						) {
@@ -444,20 +516,28 @@ fun Contacts(navController: NavController, model: MainViewModel) {
 								modifier = Modifier.padding(start = 10.dp, end = 10.dp),
 							)
 						}
-/*						IconButton(
-							onClick = { groupToDel = id }
+						Spacer(modifier = Modifier.width(10.dp))
+						Box(
+							contentAlignment = Alignment.CenterStart,
+							modifier = Modifier.weight(1.0f)
+						) {
+							Text(text = name)
+						}
+						Spacer(modifier = Modifier.width(20.dp))
+						IconButton(
+							onClick = { itemToDel = id }
 						) {
 							Icon(
-								Icons.Filled.Delete, // Trash (delete) icon
+								Icons.Filled.Delete,
 								contentDescription = "Delete Item"
 							)
-						}*/
+						}
 					}
 				}
 			}
 			var failedDialog by remember { mutableStateOf("") }
 			FloatingActionButton(
-				onClick = { addDialog = true },
+				onClick = { addContactState = AddContactState.TextInput },
 				modifier = Modifier
 					.align(Alignment.BottomEnd)
 					.padding(20.dp),
@@ -467,19 +547,50 @@ fun Contacts(navController: NavController, model: MainViewModel) {
 					contentDescription = "Add"
 				)
 			}
-			/*
-			if (groupToDel >= 0) {
-				ConfirmDialog(
-					"Delete group ${groups[groupToDel].name}?",
-					onDismiss = { groupToDel = -1; },
-					onConfirm = { model.groupsMan.remove(groupToDel) }
-				)
-			}*/
-			if (addDialog) {
-				AddContactDialog(
-					onDismiss = { addDialog = false },
-					onConfirm = { /* TODO */ }
-				)
+			if (itemToDel != null) {
+				val item = contacts.find { it.id == itemToDel }
+				if (item == null) {
+					itemToDel = null
+				} else {
+					val id: Long = item.id
+					ConfirmDialog(
+						"Delete ${item.name}?",
+						onDismiss = { itemToDel = null; },
+						onConfirm = { model.contactsMan.remove(id) }
+					)
+				}
+			}
+			when (addContactState) {
+				AddContactState.TextInput -> {
+					AddContactDialog(
+						onDismiss = { addContactState = AddContactState.Hidden },
+						onConfirm = {
+							val userName = it
+							addContactState = AddContactState.Checking
+							scope.launch(Dispatchers.IO) {
+								model.server.userInfo(it).fold(
+									onSuccess = {
+										val id = it
+										model.contactsMan.add(id, userName)
+										withContext(Dispatchers.Main) {
+											addContactState = AddContactState.Hidden
+										}
+									},
+									onFailure = {
+										withContext(Dispatchers.Main) {
+											failedDialog = "Username not found"
+											addContactState = AddContactState.Hidden
+										}
+									}
+								)
+							}
+						}
+					)
+				}
+				AddContactState.Checking -> {
+					InfoDialg("Checking...")
+				}
+				AddContactState.Hidden -> {}
 			}
 			if (failedDialog != "") {
 				MessageDialog(

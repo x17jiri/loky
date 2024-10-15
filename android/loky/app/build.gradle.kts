@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
     id("kotlin-kapt")
+//    id("com.github.ben-manes.versions")
 }
 
 android {
@@ -12,7 +13,7 @@ android {
 
     defaultConfig {
         applicationId = "com.x17jiri.Loky"
-        minSdk = 31
+        minSdk = 28
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -77,12 +78,15 @@ dependencies {
 //    implementation("com.google.android.gms:play-services-maps:18.1.0")
 
     // Google Maps Compose library
-    val mapsComposeVersion = "4.4.1"
+    val mapsComposeVersion = "6.1.2"
     implementation("com.google.maps.android:maps-compose:$mapsComposeVersion")
     // Google Maps Compose utility library
     implementation("com.google.maps.android:maps-compose-utils:$mapsComposeVersion")
     // Google Maps Compose widgets library
     implementation("com.google.maps.android:maps-compose-widgets:$mapsComposeVersion")
+
+    implementation("com.mapbox.maps:android:11.7.1")
+    implementation("com.mapbox.extension:maps-compose:11.7.1")
 }
 
 secrets {

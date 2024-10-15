@@ -12,7 +12,7 @@ import (
 )
 
 type Message struct {
-	From      uint64
+	From      int64
 	Timestamp time.Time
 	Data      string
 }
@@ -22,7 +22,7 @@ type User struct {
 	Salt   []byte `json:"salt"`   // salt for password hashing
 	Passwd []byte `json:"passwd"` // hashed password
 
-	Id    uint64 `json:"id"`    // used instead of name in all operations except login
+	Id    int64  `json:"id"`    // used instead of name in all operations except login
 	Token []byte `json:"token"` // used instead of password in all operations except login
 
 	Key     []byte `json:"key"`     // public key for encryption
@@ -37,7 +37,7 @@ type User struct {
 
 type Users struct {
 	name_map map[string]*User
-	id_map   map[uint64]*User
+	id_map   map[int64]*User
 	filename string
 }
 
@@ -49,7 +49,7 @@ func (users *Users) userByName(name string) *User {
 	return user
 }
 
-func (users *Users) userById(id uint64) *User {
+func (users *Users) userById(id int64) *User {
 	user, found := users.id_map[id]
 	if !found {
 		return nil
@@ -60,7 +60,7 @@ func (users *Users) userById(id uint64) *User {
 func (users *Users) clone() *Users {
 	users_clone := &Users{
 		name_map: make(map[string]*User),
-		id_map:   make(map[uint64]*User),
+		id_map:   make(map[int64]*User),
 		filename: users.filename,
 	}
 	for id, user := range users.id_map {
@@ -76,7 +76,7 @@ func load_users(filename string) (*Users, error) {
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
 		return &Users{
 			name_map: make(map[string]*User),
-			id_map:   make(map[uint64]*User),
+			id_map:   make(map[int64]*User),
 		}, nil
 	}
 
@@ -101,7 +101,7 @@ func load_users(filename string) (*Users, error) {
 
 	users := &Users{
 		name_map: make(map[string]*User),
-		id_map:   make(map[uint64]*User),
+		id_map:   make(map[int64]*User),
 		filename: filename,
 	}
 	for _, user := range array {
@@ -144,8 +144,8 @@ func (users *Users) store() error {
 	return nil
 }
 
-func __gen_unique_id(users *Users) (uint64, error) {
-	var id uint64
+func __gen_unique_id(users *Users) (int64, error) {
+	var id int64
 	var err error
 	var i int
 	for i = 0; i < 10; i++ {
@@ -236,9 +236,9 @@ func main() {
 		return
 	}
 	//users.add("admin", hash("admin"))
-	//users.add("x17jiri", hash("my stupefyingly insecure password"))
-	//users.add("zuzka", hash("my stupefyingly secure password"))
-	//err = users.store_users("users.json")
+	//users.add("jiri", hash("pwd123"))
+	//users.add("zuzka", hash("pwd456"))
+	//err = users.store()
 	//if err != nil {
 	//	fmt.Println("Error storing users:", err)
 	//	return

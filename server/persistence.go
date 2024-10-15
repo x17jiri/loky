@@ -1,7 +1,7 @@
 package main
 
 type UpdateCredRequest struct {
-	Id      uint64
+	Id      int64
 	Token   []byte
 	Key     []byte
 	KeyHash []byte

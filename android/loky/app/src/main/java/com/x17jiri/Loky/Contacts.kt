@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @Entity(tableName = "contacts")
@@ -48,9 +49,7 @@ abstract class AppDatabase: RoomDatabase() {
 		private var instance: AppDatabase? = null
 
 		fun getInstance(context: android.content.Context): AppDatabase {
-			Log.d("Locodile", "AppDatabase.getInstance.1")
 			if (instance == null) {
-				Log.d("Locodile", "AppDatabase.getInstance.2")
 				try {
 					instance = Room.databaseBuilder(
 						context.applicationContext,
@@ -61,9 +60,7 @@ abstract class AppDatabase: RoomDatabase() {
 					Log.d("Locodile", "AppDatabase.getInstance.2.1: e=$e")
 					throw e
 				}
-				Log.d("Locodile", "AppDatabase.getInstance.3")
 			}
-			Log.d("Locodile", "AppDatabase.getInstance.4: instance=$instance")
 			return instance!!
 		}
 	}
@@ -87,44 +84,74 @@ class ContactsManager(database: AppDatabase, scope: CoroutineScope) {
 	}
 
 	fun setSend(id: Long, send: Boolean) {
-		val newList = __contacts.value.map<Contact, Contact> {
-			if (it.id == id) {
-				var newContact = it.copy(send = send)
-				scope.launch(Dispatchers.IO) {
-					database.contactDao().insertAll(newContact)
+		__contacts.update {
+			it.map<Contact, Contact> {
+				if (it.id == id) {
+					var newContact = it.copy(send = send)
+					scope.launch(Dispatchers.IO) {
+						database.contactDao().insertAll(newContact)
+					}
+					newContact
+				} else {
+					it
 				}
-				newContact
-			} else {
-				it
 			}
 		}
-		__contacts.value = newList
 	}
 
 	fun setRecv(id: Long, recv: Boolean) {
-		val newList = __contacts.value.map<Contact, Contact> {
-			if (it.id == id) {
-				var newContact = it.copy(recv = recv)
-				scope.launch(Dispatchers.IO) {
-					database.contactDao().insertAll(newContact)
+		__contacts.update {
+			it.map<Contact, Contact> {
+				if (it.id == id) {
+					var newContact = it.copy(recv = recv)
+					scope.launch(Dispatchers.IO) {
+						database.contactDao().insertAll(newContact)
+					}
+					newContact
+				} else {
+					it
 				}
-				newContact
-			} else {
-				it
 			}
 		}
-		__contacts.value = newList
 	}
 
 	fun add(id: Long, name: String) {
-		if (__contacts.value.any { it.id == id }) {
-			return
+		__contacts.update {
+			if (it.any { it.id == id }) {
+				it
+			} else {
+				val newContact = Contact(id, name, false, false, "", "")
+				scope.launch(Dispatchers.IO) {
+					database.contactDao().insertAll(newContact)
+				}
+				it + newContact
+			}
 		}
+	}
 
-		val newContact = Contact(id, name, false, false, "", "")
-		scope.launch(Dispatchers.IO) {
-			database.contactDao().insertAll(newContact)
+	fun remove(id: Long) {
+		__contacts.update {
+			it.filter { it.id != id }
 		}
-		__contacts.value = __contacts.value + newContact
+		scope.launch(Dispatchers.IO) {
+			database.contactDao().delete(Contact(id, "", false, false, "", ""))
+		}
+	}
+
+	fun update(updateItem: (Contact) -> Contact) {
+		__contacts.update {
+			Log.d("Locodile", "ContactsManager.update: it=$it")
+			it.map<Contact, Contact> {
+				Log.d("Locodile", "ContactsManager.update item: it=$it")
+				val newContact = updateItem(it)
+				if (newContact != it) {
+					Log.d("Locodile", "ContactsManager.update: newContact=$newContact")
+					scope.launch(Dispatchers.IO) {
+						database.contactDao().insertAll(newContact)
+					}
+				}
+				newContact
+			}
+		}
 	}
 }

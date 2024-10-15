@@ -30,13 +30,13 @@ func __gen_salt(count int) ([]byte, error) {
 	return salt, nil
 }
 
-func __gen_id() (uint64, error) {
+func __gen_id() (int64, error) {
 	id := make([]byte, 8)
 	_, err := rand.Read(id)
 	if err != nil {
 		return 0, err
 	}
-	return binary.LittleEndian.Uint64(id), nil
+	return int64(binary.LittleEndian.Uint64(id)), nil
 }
 
 func __hash_passwd(password []byte, salt []byte) []byte {

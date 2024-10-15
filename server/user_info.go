@@ -10,7 +10,7 @@ type UserInfoRequest struct {
 }
 
 type UserInfoResponse struct {
-	Id uint64
+	Id int64
 }
 
 func userInfo_handler(user *User) UserInfoResponse {
@@ -24,7 +24,7 @@ type UserInfoHTTPInput struct {
 }
 
 type UserInfoHTTPOutput struct {
-	Id uint64 `json:"id"`
+	Id int64 `json:"id"`
 }
 
 func userInfo_http_handler(w http.ResponseWriter, r *http.Request) {

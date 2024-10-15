@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -34,19 +35,19 @@ func send_handler(user *User, req SendRequest) *SendResponse {
 }
 
 type SendHTTPInputItem struct {
-	To      uint64 `json:"to"`
+	To      int64  `json:"to"`
 	Data    string `json:"data"`
 	KeyHash []byte `json:"keyHash"` // This key was used to encrypt the message
 }
 
 type SendHTTPInput struct {
-	Id    uint64              `json:"id"`
+	Id    int64               `json:"id"`
 	Token []byte              `json:"token"`
 	Items []SendHTTPInputItem `json:"items"`
 }
 
 type SendHTTPOutputItem struct {
-	To      uint64 `json:"to"`
+	To      int64  `json:"to"`
 	Key     []byte `json:"key"`
 	KeyHash []byte `json:"keyHash"`
 }
@@ -62,6 +63,7 @@ func send_http_handler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	fmt.Println("send_http_handler: input = ", input)
 
 	users := usersList.Load()
 	user := users.userById(input.Id)
@@ -79,7 +81,7 @@ func send_http_handler(w http.ResponseWriter, r *http.Request) {
 
 	for _, item := range input.Items {
 		toUser := users.userById(item.To)
-		if toUser == nil {
+		if toUser == nil /*|| user.Id == toUser.Id*/ {
 			continue
 		}
 
@@ -102,6 +104,8 @@ func send_http_handler(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+
+	fmt.Println("send_http_handler: output = ", output)
 
 	err = json.NewEncoder(w).Encode(output)
 	if err != nil {

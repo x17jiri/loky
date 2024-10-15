@@ -20,15 +20,15 @@ func recv_handler(user *User, req RecvRequest) RecvResponse {
 }
 
 type RecvHTTPInput struct {
-	Id    uint64 `json:"id"`
+	Id    int64  `json:"id"`
 	Token []byte `json:"token"`
 }
 
 type RecvOutput []RecvOutputItem
 
 type RecvOutputItem struct {
-	From uint64 `json:"from"`
-	Age  uint64 `json:"age"`
+	From int64  `json:"from"`
+	Age  int64  `json:"age"`
 	Data string `json:"data"`
 }
 
@@ -63,7 +63,7 @@ func recv_http_handler(w http.ResponseWriter, r *http.Request) {
 	for _, msg := range resp {
 		output = append(output, RecvOutputItem{
 			From: msg.From,
-			Age:  uint64(now.Sub(msg.Timestamp).Seconds()),
+			Age:  int64(now.Sub(msg.Timestamp).Seconds()),
 			Data: msg.Data,
 		})
 	}

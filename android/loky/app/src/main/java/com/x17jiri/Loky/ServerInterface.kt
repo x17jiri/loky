@@ -29,6 +29,13 @@ import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import com.google.gson.annotations.SerializedName
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonDeserializationContext
+import com.google.gson.JsonDeserializer
+import com.google.gson.JsonElement
+import com.google.gson.JsonPrimitive
+import com.google.gson.JsonSerializationContext
+import com.google.gson.JsonSerializer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope
@@ -36,21 +43,16 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.lang.reflect.Type
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-data class LoginOutput(
-	@SerializedName("id") val id: Long,
-	@SerializedName("token") val token: String,
-)
-
-class ServerInterface(context: Context) {
+class ServerInterface(context: Context, model: MainViewModel) {
 	private val dataStore = context.dataStore
+	private val model = model
 	private val server = "10.0.0.2:9443"
 	private var trustManager: X509TrustManager
 	private var sslContext: SSLContext
-	private var token: Long = 0
-	private var key: ByteArray = ByteArray(16)
 	private val gson = Gson()
 
 	init {
@@ -60,15 +62,15 @@ class ServerInterface(context: Context) {
 			.generateCertificate(input)
 
 		val keyStoreType = KeyStore.getDefaultType()
-        val keyStore = KeyStore.getInstance(keyStoreType)
-        keyStore.load(null, null) // Initialize a new empty keystore
-        keyStore.setCertificateEntry("ca", serverCA) // Set the trusted CA
+		val keyStore = KeyStore.getInstance(keyStoreType)
+		keyStore.load(null, null) // Initialize a new empty keystore
+		keyStore.setCertificateEntry("ca", serverCA) // Set the trusted CA
 
-        // Create a TrustManager that trusts the CAs in our KeyStore
+		// Create a TrustManager that trusts the CAs in our KeyStore
 		val trustManagerAlgorithm = TrustManagerFactory.getDefaultAlgorithm()
-        val trustManagerFactory = TrustManagerFactory.getInstance(trustManagerAlgorithm)
-        trustManagerFactory.init(keyStore)
-        val trustManagers = trustManagerFactory.getTrustManagers()
+		val trustManagerFactory = TrustManagerFactory.getInstance(trustManagerAlgorithm)
+		trustManagerFactory.init(keyStore)
+		val trustManagers = trustManagerFactory.getTrustManagers()
 
 		trustManager = trustManagers[0] as X509TrustManager
 
@@ -86,8 +88,57 @@ class ServerInterface(context: Context) {
 		val __keyOwnerKey = stringPreferencesKey("key.owner")
 	}
 
+	suspend fun <Request, Response> __restAPI(
+		url: String,
+		request: Request,
+		responseType: Class<Response>
+	): Result<Response> {
+		try {
+			val connection = URL(url).openConnection() as HttpsURLConnection
+			connection.requestMethod = "POST"
+			connection.setRequestProperty("Content-Type", "application/json")
+			connection.setRequestProperty("Accept", "application/json")
+			connection.doOutput = true
+			Log.d("Locodile", "ServerInterface.restAPI: url=$url, request=$request")
+
+			connection.outputStream.use { os ->
+				val input = gson.toJson(request).toByteArray(Charsets.UTF_8)
+				os.write(input, 0, input.size)
+				os.flush()
+			}
+			Log.d("Locodile", "ServerInterface.restAPI: connection=$connection")
+
+			try {
+				connection.connect()
+				val responseCode = connection.responseCode
+				if (responseCode == HttpsURLConnection.HTTP_OK) {
+					val response = connection.inputStream.bufferedReader().use { it.readText() }
+					return Result.success(gson.fromJson(response, responseType))
+				} else {
+					Log.d("Locodile", "ServerInterface.restAPI: response code=$responseCode")
+					var error = ""
+					val errorStream = connection.errorStream
+					if (errorStream != null) {
+						error = errorStream.bufferedReader().use { it.readText() }
+						Log.d("Locodile", "ServerInterface.restAPI: error=$error")
+					}
+					return Result.failure(Exception("Server error: $responseCode $error"))
+				}
+			} finally {
+				connection.disconnect()
+			}
+		} catch (e: Exception) {
+			Log.d("Locodile", "ServerInterface.restAPI: e=$e")
+			return Result.failure(e)
+		}
+	}
+
+	inline suspend fun <reified Request, reified Response> restAPI(url: String, request: Request): Result<Response> {
+		return __restAPI(url, request, Response::class.java)
+	}
+
 	@OptIn(ExperimentalEncodingApi::class)
-	suspend fun login(cred: Credentials): Credentials? {
+	suspend fun login(cred: Credentials): Result<Credentials> {
 		return withContext(Dispatchers.IO) {
 			val name = cred.user
 			// Note: the hash is not used for security.
@@ -129,81 +180,127 @@ class ServerInterface(context: Context) {
 			}
 			Log.d("Locodile", "ServerInterface.login: public key: $publicKey")
 
-			// The endpoint is: "https://$server/api/login"
-			// Expects a POST request with the following JSON:
-			// 	type LoginInput struct {
-			// 		Name   string `json:"name"`
-			// 		Passwd []byte `json:"passwd"`
-			// 		Key    []byte `json:"key"`
-			// 	}
-			// The response is a JSON with the following structure:
-			// 	type LoginOutput struct {
-			// 		Id    uint64 `json:"id"`
-			// 		Token []byte `json:"token"`
-			// 	}
+			data class LoginRequest(
+				val name: String,
+				val passwd: String,
+				val key: String,
+				val keyHash: String,
+			)
 
-			val url = "https://$server/api/login"
-			val body = """{"name":"$name","passwd":"$passwd","key":"$publicKey","keyHash":"$keyHash"}"""
+			data class LoginResponse(
+				val id: Long,
+				val token: String,
+			)
 
-			val connection = URL(url).openConnection() as HttpsURLConnection
-			connection.requestMethod = "POST"
-			connection.setRequestProperty("Content-Type", "application/json")
-			connection.setRequestProperty("Accept", "application/json")
-			connection.doOutput = true
-			Log.d("Locodile", "ServerInterface.login: body: $body")
-
-			connection.outputStream.use { os ->
-				val input = body.toByteArray(Charsets.UTF_8)
-				os.write(input, 0, input.size)
-				os.flush()
+			restAPI<LoginRequest, LoginResponse>(
+				"https://$server/api/login",
+				LoginRequest(name, passwd, publicKey, keyHash)
+			).mapCatching {
+				Log.d("Locodile","ServerInterface.login: id: ${it.id}, token: ${it.token}")
+				val newCred = cred.copy(
+					id = it.id,
+					token = it.token,
+					enc = enc
+				)
+				Log.d("Locodile","ServerInterface.login: newCred: $newCred")
+				newCred
 			}
-			Log.d("Locodile", "ServerInterface.login: connection: $connection")
-
-			var result: Credentials? = null
-			try {
-				connection.connect()
-				val responseCode = connection.responseCode
-				Log.d("Locodile", "ServerInterface.login: response code: $responseCode")
-				if (responseCode == HttpsURLConnection.HTTP_OK) {
-					val response = connection.inputStream.bufferedReader().use { it.readText() }
-					Log.d("Locodile", "ServerInterface.login: response: $response")
-					val loginOutput = gson.fromJson(response, LoginOutput::class.java)
-					Log.d("Locodile", "ServerInterface.login: id: ${loginOutput.id}, token: ${loginOutput.token}")
-					result = cred.copy(
-						id = loginOutput.id,
-						token = loginOutput.token,
-						enc = enc
-					)
-				}
-			} finally {
-				connection.disconnect()
-			}
-
-			result
 		}
 	}
 
-	suspend fun sendLoc(writeCert: Credentials, loc: Location) {
+	suspend fun userInfo(userName: String): Result<Long> {
 		return withContext(Dispatchers.IO) {
-//			val token = writeCert.token
-//			val key = writeCert
+			data class UserInfoRequest(
+				val name: String,
+			)
 
-			// The endpoint is: "https://$server/api/write"
-			// Expects a POST request with the following JSON:
-			// 	type WriteInputItem struct {
-			// 		Group uint8        `json:"group"`
-			// 		Loc   EncryptedLoc `json:"loc"`
-			// 	}
-			// 	type WriteInput struct {
-			// 		Token uint64           `json:"token"`
-			// 		Key   []byte           `json:"key"`
-			// 		Locs  []WriteInputItem `json:"locs"`
-			// 	}
-			// The response is a HTTP status code
+			data class UserInfoResponse(
+				val id: Long,
+			)
 
-			val url = "https://$server/api/write"
+			restAPI<UserInfoRequest, UserInfoResponse>(
+				"https://$server/api/userInfo",
+				UserInfoRequest(userName)
+			).mapCatching {
+				it.id
+			}
+		}
+	}
 
-			// TODO
+	@OptIn(ExperimentalEncodingApi::class)
+	suspend fun sendLoc(cred: Credentials, loc: Location): Result<Unit> {
+		return withContext(Dispatchers.IO) {
+			data class Message(
+				val to: Long,
+				val data: String,
+				val keyHash: String,
+			)
+
+			data class SendRequest(
+				val id: Long,
+				val token: String,
+				val items: List<Message>,
+			)
+
+			data class SendResponseItem(
+				val to: Long,
+				val key: String,
+				val keyHash: String,
+			)
+
+			var contacts = model.contactsMan.contacts.value.filter { it.send }
+			if (contacts.isEmpty()) {
+				return@withContext Result.success(Unit)
+			}
+
+			val data = loc.latitude.toString() + "," + loc.longitude.toString()
+			var items = mutableListOf<Message>()
+			for (contact in contacts) {
+				if (contact.publicKey.isEmpty() || contact.keyHash.isEmpty()) {
+					// We don't have the contact's public key yet,
+					// so we cannot encrypt the message.
+					// Send an empty message instead.
+					// The server will respond with the contact's public key.
+					items.add(Message(contact.id, "", ""))
+				} else {
+					var enc = Encryptor()
+					enc.publicKey = Base64.decode(contact.publicKey)
+					val prefix = "valid ${contact.id}:"
+					val encrypted = enc.encrypt(data, prefix)
+					items.add(Message(contact.id, encrypted, contact.keyHash))
+				}
+			}
+
+			restAPI<SendRequest, List<SendResponseItem>>(
+				"https://$server/api/send",
+				SendRequest(cred.id, cred.token, items)
+			).mapCatching {
+				Log.d("Locodile", "ServerInterface.sendLoc: response=$it")
+				if (it.isEmpty()) {
+					Log.d("Locodile", "ServerInterface.sendLoc: no new keys")
+					return@mapCatching
+				}
+
+				try {
+					val map = it.associateBy { it.to }
+
+					Log.d("Locodile", "ServerInterface.sendLoc: map=$map")
+
+					model.contactsMan.update {
+						Log.d("Locodile", "ServerInterface.sendLoc: updating contact $it")
+						val item = map[it.id]
+						if (item != null) {
+							Log.d("Locodile", "ServerInterface.sendLoc: updating contact: $item")
+							it.copy(publicKey = item.key, keyHash = item.keyHash)
+						} else {
+							Log.d("Locodile", "ServerInterface.sendLoc: NOT updating contact: $it")
+							it
+						}
+					}
+				} catch (e: Exception) {
+					Log.d("Locodile", "ServerInterface.sendLoc: e=$e")
+				}
+			}
 		}
 	}
 }

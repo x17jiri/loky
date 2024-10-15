@@ -18,6 +18,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 class Encryptor {
 	companion object {
 		private const val RSA_ALGORITHM = "RSA"
+		// TODO - the validation prefix will be long. We should use different mode than ECB
 		private const val AES_ALGORITHM = "AES/ECB/PKCS5Padding"
 
 		fun hash(input: String): ByteArray {

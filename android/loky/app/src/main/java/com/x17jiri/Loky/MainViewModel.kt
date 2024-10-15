@@ -17,52 +17,24 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-sealed class Screen {
-    object Loading : Screen()
-    object Login : Screen()
-    object Other : Screen()
-}
-
-data class AppState(
-    val currentScreen: Screen = Screen.Loading,
-)
-
 class MainViewModel(private var context: Context): ViewModel() {
 	val credMan = CredentialsManager(context.dataStore)
-	val server = ServerInterface(context)
+	val server = ServerInterface(context, this)
 	val isLocationServiceRunning = LocationServiceState.isRunning
 	val database = AppDatabase.getInstance(context)
 	val contactsMan = ContactsManager(database, viewModelScope)
 
-    private val _appState = MutableStateFlow(AppState())
-    val appState: StateFlow<AppState> = _appState.asStateFlow()
-
 	init {
-		Log.d("Locodile", "MainViewModel init.1")
 		runBlocking {
 			credMan.init()
 		}
-		Log.d("Locodile", "MainViewModel init.2")
 		viewModelScope.launch {
 			credMan.objserve()
 		}
-		Log.d("Locodile", "MainViewModel init.3")
 		viewModelScope.launch(Dispatchers.IO) {
 			contactsMan.init()
 		}
-		Log.d("Locodile", "MainViewModel init.4")
 
-		val cred = credMan.credentials.value
-		Log.d("Locodile", "MainViewModel init.5")
-		if (cred.user.isEmpty() || cred.passwd.isEmpty()) {
-			Log.d("Locodile", "MainViewModel init.6")
-			_appState.value = AppState(Screen.Login)
-		} else {
-			Log.d("Locodile", "MainViewModel init.7")
-	        login()
-		}
-
-		Log.d("Locodile", "MainViewModel init.8")
 		viewModelScope.launch {
 			LocationServiceState.locationFlow.collect {
 				sendLoc(it)
@@ -70,23 +42,9 @@ class MainViewModel(private var context: Context): ViewModel() {
 		}
 	}
 
-	fun login() {
-		val cred = credMan.credentials.value
-		viewModelScope.launch {
-			_appState.value = AppState(Screen.Loading)
-			val updatedCred = server.login(cred)
-			if (updatedCred != null) {
-				credMan.credentials.value = updatedCred
-				_appState.value = AppState(Screen.Other)
-			} else {
-				_appState.value = AppState(Screen.Login)
-			}
-		}
-	}
-
 	fun sendLoc(loc: Location) {
 		val cred = credMan.credentials.value
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			server.sendLoc(cred, loc)
 		}
 	}

@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// 2000-01-01 00:00:00 UTC
+var referenceTime = time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+func monotonicSeconds() int64 {
+	return int64(time.Since(referenceTime).Seconds())
+}
+
 type SendRequest struct {
 	Message Message
 	KeyHash []byte
@@ -29,6 +36,25 @@ func send_handler(user *User, req SendRequest) *SendResponse {
 		}
 	}
 
+	// Remove from the inbox any messages older than 2 hours
+	now := req.Message.Timestamp
+	cutoff := now - 7200
+
+	// The messages in the inbox are sorted by timestamp,
+	// so we can find the first message that is not expired
+	// and all following messages are not expired as well.
+	expired := 0
+	for expired = 0; expired < len(user.Inbox); expired++ {
+		if user.Inbox[expired].Timestamp > cutoff {
+			break
+		}
+	}
+	if expired > 0 {
+		// Remove the expired messages
+		user.Inbox = user.Inbox[expired:]
+	}
+
+	// Add the new message to the inbox
 	user.Inbox = append(user.Inbox, req.Message)
 
 	return nil
@@ -52,7 +78,9 @@ type SendHTTPOutputItem struct {
 	KeyHash []byte `json:"keyHash"`
 }
 
-type SendHTTPOutput []SendHTTPOutputItem
+type SendHTTPOutput struct {
+	UpdatedKeys []SendHTTPOutputItem `json:"updatedKeys"`
+}
 
 func send_http_handler(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 16384)
@@ -75,9 +103,11 @@ func send_http_handler(w http.ResponseWriter, r *http.Request) {
 	respChan := make(chan *SendResponse)
 	defer close(respChan)
 
-	now := time.Now()
+	now := monotonicSeconds()
 
-	output := make([]SendHTTPOutputItem, 0)
+	output := SendHTTPOutput{
+		UpdatedKeys: make([]SendHTTPOutputItem, 0),
+	}
 
 	for _, item := range input.Items {
 		toUser := users.userById(item.To)
@@ -97,7 +127,7 @@ func send_http_handler(w http.ResponseWriter, r *http.Request) {
 		toUser.Send <- sendReq
 		resp := <-respChan
 		if resp != nil {
-			output = append(output, SendHTTPOutputItem{
+			output.UpdatedKeys = append(output.UpdatedKeys, SendHTTPOutputItem{
 				To:      item.To,
 				Key:     resp.NewKey,
 				KeyHash: resp.NewKeyHash,

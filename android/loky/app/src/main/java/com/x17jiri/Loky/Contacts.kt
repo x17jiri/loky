@@ -140,12 +140,9 @@ class ContactsManager(database: AppDatabase, scope: CoroutineScope) {
 
 	fun update(updateItem: (Contact) -> Contact) {
 		__contacts.update {
-			Log.d("Locodile", "ContactsManager.update: it=$it")
 			it.map<Contact, Contact> {
-				Log.d("Locodile", "ContactsManager.update item: it=$it")
 				val newContact = updateItem(it)
 				if (newContact != it) {
-					Log.d("Locodile", "ContactsManager.update: newContact=$newContact")
 					scope.launch(Dispatchers.IO) {
 						database.contactDao().insertAll(newContact)
 					}

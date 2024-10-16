@@ -23,6 +23,7 @@ class MainViewModel(private var context: Context): ViewModel() {
 	val isLocationServiceRunning = LocationServiceState.isRunning
 	val database = AppDatabase.getInstance(context)
 	val contactsMan = ContactsManager(database, viewModelScope)
+	var receiver = Receiver(this)
 
 	init {
 		runBlocking {
@@ -43,9 +44,15 @@ class MainViewModel(private var context: Context): ViewModel() {
 	}
 
 	fun sendLoc(loc: Location) {
-		val cred = credMan.credentials.value
-		viewModelScope.launch(Dispatchers.IO) {
-			server.sendLoc(cred, loc)
+		Log.d("Locodile", "MainViewModel.sendLoc: loc=$loc")
+		try {
+			val cred = credMan.credentials.value
+			Log.d("Locodile", "MainViewModel.sendLoc: cred=$cred")
+			viewModelScope.launch(Dispatchers.IO) {
+				server.sendLoc(cred, loc)
+			}
+		} catch (e: Exception) {
+			Log.d("Locodile", "MainViewModel.sendLoc: e=$e")
 		}
 	}
 

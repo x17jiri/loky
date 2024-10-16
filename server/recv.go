@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"time"
 )
 
 type RecvRequest struct {
@@ -24,12 +23,14 @@ type RecvHTTPInput struct {
 	Token []byte `json:"token"`
 }
 
-type RecvOutput []RecvOutputItem
+type RecvOutput struct {
+	Items []RecvOutputItem `json:"items"`
+}
 
 type RecvOutputItem struct {
-	From int64  `json:"from"`
-	Age  int64  `json:"age"`
-	Data string `json:"data"`
+	From       int64  `json:"from"`
+	AgeSeconds int64  `json:"ageSeconds"`
+	Data       string `json:"data"`
 }
 
 func recv_http_handler(w http.ResponseWriter, r *http.Request) {
@@ -57,14 +58,16 @@ func recv_http_handler(w http.ResponseWriter, r *http.Request) {
 	user.Recv <- req
 	resp := <-respChan
 
-	now := time.Now()
+	now := monotonicSeconds()
 
-	output := make([]RecvOutputItem, 0, len(resp))
+	output := RecvOutput{
+		Items: make([]RecvOutputItem, 0, len(resp)),
+	}
 	for _, msg := range resp {
-		output = append(output, RecvOutputItem{
-			From: msg.From,
-			Age:  int64(now.Sub(msg.Timestamp).Seconds()),
-			Data: msg.Data,
+		output.Items = append(output.Items, RecvOutputItem{
+			From:       msg.From,
+			AgeSeconds: now - msg.Timestamp,
+			Data:       msg.Data,
 		})
 	}
 

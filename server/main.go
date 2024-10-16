@@ -8,12 +8,11 @@ import (
 	"os"
 	"sort"
 	"sync/atomic"
-	"time"
 )
 
 type Message struct {
 	From      int64
-	Timestamp time.Time
+	Timestamp int64 // seconds since referenceTime
 	Data      string
 }
 

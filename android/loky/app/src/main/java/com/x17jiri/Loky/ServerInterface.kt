@@ -44,6 +44,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.lang.reflect.Type
+import java.time.Instant
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -145,7 +146,6 @@ class ServerInterface(context: Context, model: MainViewModel) {
 			// It is used so we can limit message size on the server side
 			// without limiting the password size.
 			val passwd = Base64.encode(Encryptor.hash(cred.passwd))
-			Log.d("Locodile", "ServerInterface.login: $name, $passwd")
 
 			var publicKey = ""
 			var privateKey = ""
@@ -178,7 +178,6 @@ class ServerInterface(context: Context, model: MainViewModel) {
 					it[__keyOwnerKey] = name
 				}
 			}
-			Log.d("Locodile", "ServerInterface.login: public key: $publicKey")
 
 			data class LoginRequest(
 				val name: String,
@@ -196,13 +195,11 @@ class ServerInterface(context: Context, model: MainViewModel) {
 				"https://$server/api/login",
 				LoginRequest(name, passwd, publicKey, keyHash)
 			).mapCatching {
-				Log.d("Locodile","ServerInterface.login: id: ${it.id}, token: ${it.token}")
 				val newCred = cred.copy(
 					id = it.id,
 					token = it.token,
 					enc = enc
 				)
-				Log.d("Locodile","ServerInterface.login: newCred: $newCred")
 				newCred
 			}
 		}
@@ -248,6 +245,10 @@ class ServerInterface(context: Context, model: MainViewModel) {
 				val keyHash: String,
 			)
 
+			data class SendResponse(
+				val updatedKeys: List<SendResponseItem>,
+			)
+
 			var contacts = model.contactsMan.contacts.value.filter { it.send }
 			if (contacts.isEmpty()) {
 				return@withContext Result.success(Unit)
@@ -263,42 +264,74 @@ class ServerInterface(context: Context, model: MainViewModel) {
 					// The server will respond with the contact's public key.
 					items.add(Message(contact.id, "", ""))
 				} else {
-					var enc = Encryptor()
-					enc.publicKey = Base64.decode(contact.publicKey)
-					val prefix = "valid ${contact.id}:"
-					val encrypted = enc.encrypt(data, prefix)
-					items.add(Message(contact.id, encrypted, contact.keyHash))
+					try {
+						var enc = Encryptor()
+						enc.publicKey = Base64.decode(contact.publicKey)
+						val prefix = "valid ${contact.id}:"
+						val encrypted = enc.encrypt(data, prefix)
+						items.add(Message(contact.id, encrypted, contact.keyHash))
+					} catch (e: Exception) {
+						Log.d("Locodile", "ServerInterface.sendLoc: e=$e")
+					}
 				}
 			}
 
-			restAPI<SendRequest, List<SendResponseItem>>(
+			restAPI<SendRequest, SendResponse>(
 				"https://$server/api/send",
 				SendRequest(cred.id, cred.token, items)
 			).mapCatching {
-				Log.d("Locodile", "ServerInterface.sendLoc: response=$it")
-				if (it.isEmpty()) {
-					Log.d("Locodile", "ServerInterface.sendLoc: no new keys")
+				if (it.updatedKeys.isEmpty()) {
 					return@mapCatching
 				}
 
-				try {
-					val map = it.associateBy { it.to }
+				val map = it.updatedKeys.associateBy { it.to }
 
-					Log.d("Locodile", "ServerInterface.sendLoc: map=$map")
+				model.contactsMan.update {
+					val item = map[it.id]
+					if (item != null) {
+						it.copy(publicKey = item.key, keyHash = item.keyHash)
+					} else {
+						it
+					}
+				}
+			}
+		}
+	}
 
-					model.contactsMan.update {
-						Log.d("Locodile", "ServerInterface.sendLoc: updating contact $it")
-						val item = map[it.id]
-						if (item != null) {
-							Log.d("Locodile", "ServerInterface.sendLoc: updating contact: $item")
-							it.copy(publicKey = item.key, keyHash = item.keyHash)
-						} else {
-							Log.d("Locodile", "ServerInterface.sendLoc: NOT updating contact: $it")
-							it
+	suspend fun recv(cred: Credentials, process: (Message) -> Unit): Result<Unit> {
+		return withContext(Dispatchers.IO) {
+			data class RecvRequest(
+				val id: Long,
+				val token: String,
+			)
+
+			data class RecvResponseItem(
+				val from: Long,
+				val ageSeconds: Long,
+				val data: String,
+			)
+
+			data class RecvResponse(
+				val items: List<RecvResponseItem>,
+			)
+
+			restAPI<RecvRequest, RecvResponse>(
+				"https://$server/api/recv",
+				RecvRequest(cred.id, cred.token)
+			).mapCatching {
+				val enc = cred.enc
+				val prefix = "valid ${cred.id}:"
+				val now = Instant.now()
+				for (item in it.items) {
+					val decrypted = enc.decrypt(item.data, prefix)
+					if (decrypted != null) {
+						try {
+							val (lat, lon) = decrypted.split(",").map { it.toDouble() }
+							process(Message(item.from, lat, lon, now.minusSeconds(item.ageSeconds)))
+						} catch (e: Exception) {
+							Log.d("Locodile", "ServerInterface.recv: e=$e")
 						}
 					}
-				} catch (e: Exception) {
-					Log.d("Locodile", "ServerInterface.sendLoc: e=$e")
 				}
 			}
 		}

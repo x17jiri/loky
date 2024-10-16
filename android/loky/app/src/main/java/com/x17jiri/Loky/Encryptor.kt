@@ -17,41 +17,37 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 class Encryptor {
 	companion object {
-		private const val RSA_ALGORITHM = "RSA"
-		// TODO - the validation prefix will be long. We should use different mode than ECB
-		private const val AES_ALGORITHM = "AES/ECB/PKCS5Padding"
-
 		fun hash(input: String): ByteArray {
 			val md = MessageDigest.getInstance("SHA-256")
 			return md.digest(input.toByteArray(Charsets.UTF_8))
 		}
 
 		fun encryptWithAES(input: String, key: SecretKey): ByteArray {
-			val cipher = Cipher.getInstance(AES_ALGORITHM)
+			val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
 			cipher.init(Cipher.ENCRYPT_MODE, key)
 			return cipher.doFinal(input.toByteArray(Charsets.UTF_8))
 		}
 
 		fun decryptWithAES(input: ByteArray, key: SecretKey): String {
-			val cipher = Cipher.getInstance(AES_ALGORITHM)
+			val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
 			cipher.init(Cipher.DECRYPT_MODE, key)
 			return String(cipher.doFinal(input), Charsets.UTF_8)
 		}
 
 		fun encryptWithRSA(input: ByteArray, publicKey: PublicKey): ByteArray {
-			val cipher = Cipher.getInstance(RSA_ALGORITHM)
+			val cipher = Cipher.getInstance("RSA")
 			cipher.init(Cipher.ENCRYPT_MODE, publicKey)
 			return cipher.doFinal(input)
 		}
 
 		fun decryptWithRSA(input: ByteArray, privateKey: PrivateKey): ByteArray {
-			val cipher = Cipher.getInstance(RSA_ALGORITHM)
+			val cipher = Cipher.getInstance("RSA")
 			cipher.init(Cipher.DECRYPT_MODE, privateKey)
 			return cipher.doFinal(input)
 		}
 
 		fun generateAESKey(): SecretKey {
-			val keyGenerator = KeyGenerator.getInstance(AES_ALGORITHM)
+			val keyGenerator = KeyGenerator.getInstance("AES")
 			keyGenerator.init(256)
 			return keyGenerator.generateKey()
 		}
@@ -66,8 +62,8 @@ class Encryptor {
 			rsaPublicKey = null
 			if (value != null) {
 				try {
-					KeyFactory
-						.getInstance(RSA_ALGORITHM)
+					rsaPublicKey = KeyFactory
+						.getInstance("RSA")
 						.generatePublic(X509EncodedKeySpec(value))
 				} catch (e: Exception) {}
 			}
@@ -79,15 +75,15 @@ class Encryptor {
 			rsaPrivateKey = null
 			if (value != null) {
 				try {
-					KeyFactory
-						.getInstance(RSA_ALGORITHM)
+					rsaPrivateKey = KeyFactory
+						.getInstance("RSA")
 						.generatePrivate(PKCS8EncodedKeySpec(value))
 				} catch (e: Exception) {}
 			}
 		}
 
 	fun generateKeys() {
-		val keyPairGenerator = KeyPairGenerator.getInstance(RSA_ALGORITHM)
+		val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
 		keyPairGenerator.initialize(2048)
 		val keyPair = keyPairGenerator.generateKeyPair()
 		rsaPublicKey = keyPair.public
@@ -96,18 +92,21 @@ class Encryptor {
 
 	@OptIn(ExperimentalEncodingApi::class)
 	fun encrypt(input: String, validationPrefix: String): String {
-		assert(rsaPublicKey != null)
+		if (rsaPublicKey == null) {
+			throw Exception("Public key is not set")
+		}
 		val validatedInput = validationPrefix + input
 		val aesKey = generateAESKey()
 		val encryptedMessage = encryptWithAES(validatedInput, aesKey)
 		val encryptedAESKey = encryptWithRSA(aesKey.encoded, rsaPublicKey!!)
-		Log.d("Locodile", "length of encrypred key: ${Base64.encode(encryptedAESKey).length}")
 		return Base64.encode(encryptedAESKey) + ":" + Base64.encode(encryptedMessage)
 	}
 
 	@OptIn(ExperimentalEncodingApi::class)
 	fun decrypt(input: String, validatonPrefix: String): String? {
-		assert(rsaPrivateKey != null)
+		if (rsaPrivateKey == null) {
+			throw Exception("Private key is not set")
+		}
 		val parts = input.split(":")
 		if (parts.size != 2) {
 			return null
@@ -117,7 +116,7 @@ class Encryptor {
 		val encryptedMessage = Base64.decode(parts[1])
 
 		val aesKeyBytes = decryptWithRSA(encryptedAESKey, rsaPrivateKey!!)
-		val aesKey = SecretKeySpec(aesKeyBytes, AES_ALGORITHM)
+		val aesKey = SecretKeySpec(aesKeyBytes, "AES")
 
 		val decryptedMessage = decryptWithAES(encryptedMessage, aesKey)
 

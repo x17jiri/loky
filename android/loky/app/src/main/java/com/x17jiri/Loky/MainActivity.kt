@@ -62,6 +62,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
@@ -236,6 +237,13 @@ fun LoginScreen(context: Context, model: MainViewModel, navController: NavContro
 
 @Composable
 fun MapView(navController: NavController, model: MainViewModel, context: Context) {
+	DisposableEffect(Unit) {
+		model.receiver.startReceiving()
+		onDispose {
+			model.receiver.stopReceiving()
+		}
+	}
+
 	Scaffold(
 		modifier = Modifier
 			.fillMaxSize()
@@ -279,11 +287,21 @@ fun MapView(navController: NavController, model: MainViewModel, context: Context
 					.weight(1.0f)
 					.fillMaxWidth()
 			) {
+				val data by model.receiver.data.collectAsState()
 				var mapViewportState = rememberMapViewportState {}
 				MapboxMap(
 					Modifier.fillMaxSize(),
 					mapViewportState = mapViewportState,
 				) {
+					for ((k, v) in data) {
+						PolylineAnnotation(
+							points = v.map { Point.fromLngLat(it.lon, it.lat) }
+						) {
+							lineColor = Color(0xffee4e8b)
+							lineWidth = 5.0
+						}
+					}
+					
 					MapEffect(Unit) { mapView ->
 						mapView.location.updateSettings {
 							locationPuck = createDefault2DPuck(withBearing = true)
@@ -292,17 +310,6 @@ fun MapView(navController: NavController, model: MainViewModel, context: Context
 							puckBearingEnabled = true
 						}
 						mapViewportState.transitionToFollowPuckState()
-					}
-					// Insert a PolylineAnnotation composable function with the geographic coordinates to the content of MapboxMap composable function.
-					PolylineAnnotation(
-						points = listOf(
-							Point.fromLngLat(17.94, 59.25),
-							Point.fromLngLat(18.18, 59.37)
-						)
-					) {
-						// Set options for the resulting line layer.
-						lineColor = Color(0xffee4e8b)
-						lineWidth = 5.0
 					}
 				}
 			}

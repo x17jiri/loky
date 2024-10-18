@@ -1,29 +1,33 @@
 package com.x17jiri.Loky
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.location.LocationRequest
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
@@ -31,71 +35,61 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.util.concurrent.Executor
 
 object LocationServiceState {
-	private val _locationFlow = MutableSharedFlow<Location>()
-	val locationFlow: SharedFlow<Location> = _locationFlow.asSharedFlow()
-
-	suspend fun addLocation(location: Location) {
-		_locationFlow.emit(location)
-	}
-
-	private val _isRunning = MutableStateFlow(false)
-    val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
-
-    fun setIsRunning(isRunning: Boolean) {
-        _isRunning.value = isRunning
-    }
+	val __isRunning = MutableStateFlow(false)
+	val isRunning: StateFlow<Boolean> = __isRunning.asStateFlow()
 }
 
 class LocationService: Service() {
-	private val CHANNEL_ID = "LocationServiceChannel"
+	private val CHANNEL_ID = "Locodile.LocationService"
 	private val NOTIFICATION_ID = 1
-	private lateinit var fusedLocationClient: FusedLocationProviderClient
-	private lateinit var locationCallback: LocationCallback
-	private val job = Job()
-	private val scope = CoroutineScope(Dispatchers.IO + job)
+	private lateinit var serviceScope: CoroutineScope
+	private lateinit var server: ServerInterface
+	private lateinit var contacts: StateFlow<List<Contact>>
+	private lateinit var powerManager: PowerManager
+	private lateinit var wakeLock: PowerManager.WakeLock
+	private lateinit var locationManager: LocationManager
+	private var locationListener: LocationListener? = null
 
 	override fun onCreate() {
 		super.onCreate()
-		fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+		serviceScope = CoroutineScope(Dispatchers.IO)
+		server = this.__server
+
+		val contactFlow = this.__contactsMan.flow().map { list ->
+			list.filter { contact -> contact.send }
+		}
+		contacts = contactFlow.stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
+
+		powerManager = getSystemService(POWER_SERVICE) as PowerManager
+		wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Locodile:LocationService")
+
+		locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
 		createNotificationChannel()
-		setupLocationCallback()
-		LocationServiceState.setIsRunning(true)
+		LocationServiceState.__isRunning.value = true
 	}
 
 	private fun createNotificationChannel() {
 		val channel = NotificationChannel(
 			CHANNEL_ID,
-			"Location Service Channel",
+			"x17 Loky Location Service",
 			NotificationManager.IMPORTANCE_DEFAULT
 		)
 		val manager = getSystemService(NotificationManager::class.java)
 		manager.createNotificationChannel(channel)
-	}
-
-	private fun setupLocationCallback() {
-		locationCallback = object : LocationCallback() {
-			override fun onLocationResult(locationResult: LocationResult) {
-				for (location in locationResult.locations) {
-					scope.launch {
-						LocationServiceState.addLocation(location)
-					}
-				}
-			}
-		}
-	}
-
-	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-		startForeground(NOTIFICATION_ID, createNotification())
-		requestLocationUpdates()
-		return START_STICKY
 	}
 
 	private fun createNotification(): Notification {
@@ -113,26 +107,72 @@ class LocationService: Service() {
 			.build()
 	}
 
-	private fun requestLocationUpdates() {
-		val locationRequest = LocationRequest.Builder(10_000).build()
-
+	@SuppressLint("MissingPermission")
+    private fun requestLocationUpdates() {
 		try {
-			fusedLocationClient.requestLocationUpdates(
+			val oldListener = locationListener
+			if (oldListener != null) {
+				locationManager.removeUpdates(oldListener)
+			}
+
+			val locationRequest =
+					LocationRequest.Builder(10_000L)
+						.setMinUpdateIntervalMillis(5_000L)
+						.setMaxUpdateDelayMillis(15_000L)
+						.setQuality(LocationRequest.QUALITY_HIGH_ACCURACY)
+						.build()
+
+			val newListener = object : LocationListener {
+				val __serviceScope = serviceScope
+				val __server = server
+				val __contacts = contacts
+
+				override fun onLocationChanged(locations: List<Location>) {
+					if (locations.isNotEmpty()) {
+						onLocationChanged(locations.last())
+					}
+				}
+
+				override fun onLocationChanged(location: Location) {
+					__serviceScope.launch {
+						__server.sendLoc(location, __contacts.value)
+					}
+				}
+			}
+			locationListener = newListener
+
+			locationManager.requestLocationUpdates(
+				LocationManager.FUSED_PROVIDER,
 				locationRequest,
-				locationCallback,
-				Looper.getMainLooper()
+				Executor { command -> command.run() },
+				newListener
 			)
-		} catch (e: SecurityException) {
-			Log.e("LocationService", "Lost location permission. Could not request updates.", e)
+		} catch (e: Exception) {
+			Log.e("Locodile.LocationService", "Lost location permission. Could not request updates.", e)
 		}
 	}
 
-	override fun onBind(intent: Intent?): IBinder? = null
+	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+		startForeground(NOTIFICATION_ID, createNotification())
+		wakeLock.acquire()
+		requestLocationUpdates()
+		return START_STICKY
+	}
 
 	override fun onDestroy() {
+		wakeLock.release()
 		super.onDestroy()
-		fusedLocationClient.removeLocationUpdates(locationCallback)
-		scope.cancel()
-		LocationServiceState.setIsRunning(false)
+
+		val listener = locationListener
+		if (listener != null) {
+			locationManager.removeUpdates(listener)
+		}
+
+		serviceScope.cancel()
+		LocationServiceState.__isRunning.value = false
 	}
+
+	override fun onBind(intent: Intent?): IBinder? = null
 }
+
+

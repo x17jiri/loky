@@ -1,5 +1,6 @@
 package com.x17jiri.Loky
 
+import android.content.Context
 import android.util.Log
 import androidx.room.ColumnInfo
 import androidx.room.Dao
@@ -14,10 +15,16 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Entity(tableName = "contacts")
 data class Contact(
@@ -31,124 +38,42 @@ data class Contact(
 
 @Dao
 interface ContactDao {
-	@Query("SELECT * FROM contacts")
-	fun getAll(): List<Contact>
+	@Query("UPDATE contacts SET send = :send WHERE id = :id")
+	fun setSend(id: Long, send: Boolean)
+
+	@Query("UPDATE contacts SET recv = :recv WHERE id = :id")
+	fun setRecv(id: Long, recv: Boolean)
+
+    @Query("UPDATE contacts SET public_key = :newPublicKey, key_hash = :newKeyHash WHERE id = :contactId")
+    fun updateKey(contactId: Long, newPublicKey: String, newKeyHash: String)
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	fun insertAll(vararg contacts: Contact)
 
-	@Delete
-	fun delete(contact: Contact)
+	@Query("DELETE FROM contacts WHERE id = :id")
+	fun delete(id: Long)
+
+	@Query("SELECT * FROM contacts")
+    fun flow(): Flow<List<Contact>>
 }
 
-@Database(entities = [Contact::class], version = 1)
-abstract class AppDatabase: RoomDatabase() {
-	abstract fun contactDao(): ContactDao
-
+class ContactsManager(
+	val database: AppDatabase,
+	val coroutineScope: CoroutineScope,
+) {
 	companion object {
-		private var instance: AppDatabase? = null
-
-		fun getInstance(context: android.content.Context): AppDatabase {
-			if (instance == null) {
-				try {
-					instance = Room.databaseBuilder(
-						context.applicationContext,
-						AppDatabase::class.java,
-						"contacts_database"
-					).build()
-				} catch (e: Exception) {
-					Log.d("Locodile", "AppDatabase.getInstance.2.1: e=$e")
-					throw e
-				}
-			}
-			return instance!!
-		}
-	}
-}
-
-class ContactsManager(database: AppDatabase, scope: CoroutineScope) {
-	private val database = database
-	private val scope = scope;
-	private val __contacts = MutableStateFlow<List<Contact>>(emptyList())
-	val contacts: StateFlow<List<Contact>> = __contacts
-
-	fun init() {
-		try {
-			scope.launch(Dispatchers.IO) {
-				__contacts.value = database.contactDao().getAll()
-			}
-		} catch (e: Exception) {
-			Log.d("Locodile", "ContactsManager.init: e=$e")
-			throw e
-		}
+		val __mutex = Mutex()
 	}
 
-	fun setSend(id: Long, send: Boolean) {
-		__contacts.update {
-			it.map<Contact, Contact> {
-				if (it.id == id) {
-					var newContact = it.copy(send = send)
-					scope.launch(Dispatchers.IO) {
-						database.contactDao().insertAll(newContact)
-					}
-					newContact
-				} else {
-					it
-				}
-			}
-		}
+	val __contactDao = database.contactDao()
+
+	fun flow(): Flow<List<Contact>> {
+		return __contactDao.flow()
 	}
 
-	fun setRecv(id: Long, recv: Boolean) {
-		__contacts.update {
-			it.map<Contact, Contact> {
-				if (it.id == id) {
-					var newContact = it.copy(recv = recv)
-					scope.launch(Dispatchers.IO) {
-						database.contactDao().insertAll(newContact)
-					}
-					newContact
-				} else {
-					it
-				}
-			}
-		}
-	}
-
-	fun add(id: Long, name: String) {
-		__contacts.update {
-			if (it.any { it.id == id }) {
-				it
-			} else {
-				val newContact = Contact(id, name, false, false, "", "")
-				scope.launch(Dispatchers.IO) {
-					database.contactDao().insertAll(newContact)
-				}
-				it + newContact
-			}
-		}
-	}
-
-	fun remove(id: Long) {
-		__contacts.update {
-			it.filter { it.id != id }
-		}
-		scope.launch(Dispatchers.IO) {
-			database.contactDao().delete(Contact(id, "", false, false, "", ""))
-		}
-	}
-
-	fun update(updateItem: (Contact) -> Contact) {
-		__contacts.update {
-			it.map<Contact, Contact> {
-				val newContact = updateItem(it)
-				if (newContact != it) {
-					scope.launch(Dispatchers.IO) {
-						database.contactDao().insertAll(newContact)
-					}
-				}
-				newContact
-			}
-		}
-	}
+    suspend fun edit(block: suspend (ContactDao) -> Unit) {
+        __mutex.withLock {
+			block(__contactDao)
+        }
+    }
 }

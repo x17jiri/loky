@@ -36,6 +36,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonPrimitive
 import com.google.gson.JsonSerializationContext
 import com.google.gson.JsonSerializer
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope
@@ -48,13 +49,17 @@ import java.time.Instant
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-class ServerInterface(context: Context, model: MainViewModel) {
-	private val dataStore = context.dataStore
-	private val model = model
+class ServerInterface(
+	context: Context,
+	val coroutineScope: CoroutineScope,
+) {
 	private val server = "10.0.0.2:9443"
 	private var trustManager: X509TrustManager
 	private var sslContext: SSLContext
 	private val gson = Gson()
+
+	private val credMan = context.__credMan
+	private val contactsMan = context.__contactsMan
 
 	init {
 		val input: InputStream = context.resources.openRawResource(R.raw.ca)
@@ -80,13 +85,6 @@ class ServerInterface(context: Context, model: MainViewModel) {
 
 		HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.socketFactory)
 		HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }
-	}
-
-	companion object {
-		val __publicKeyKey = stringPreferencesKey("key.public")
-		val __privateKeyKey = stringPreferencesKey("key.private")
-		val __keyHashKey = stringPreferencesKey("key.hash")
-		val __keyOwnerKey = stringPreferencesKey("key.owner")
 	}
 
 	suspend fun <Request, Response> __restAPI(
@@ -139,43 +137,42 @@ class ServerInterface(context: Context, model: MainViewModel) {
 	}
 
 	@OptIn(ExperimentalEncodingApi::class)
-	suspend fun login(cred: Credentials): Result<Credentials> {
+	suspend fun login(): Result<Unit> {
 		return withContext(Dispatchers.IO) {
-			val name = cred.user
-			// Note: the hash is not used for security.
+			val cred = credMan.cred.value
+			val keys = credMan.keys.value
+
+			// Note: the password hash is not used for security.
 			// It is used so we can limit message size on the server side
 			// without limiting the password size.
+			val username = cred.user
 			val passwd = Base64.encode(Encryptor.hash(cred.passwd))
 
-			var publicKey = ""
-			var privateKey = ""
-			var keyHash = ""
-			var keyOwner = ""
-			dataStore.data.first().let {
-				publicKey = it[__publicKeyKey] ?: ""
-				privateKey = it[__privateKeyKey] ?: ""
-				keyHash = it[__keyHashKey] ?: ""
-				keyOwner = it[__keyOwnerKey] ?: ""
-			}
-			var enc = cred.enc
-			if (
-				publicKey.isNotEmpty()
-				&& privateKey.isNotEmpty()
-				&& keyHash.isNotEmpty()
-				&& keyOwner == name
-			) {
-				enc.publicKey = Base64.decode(publicKey)
-				enc.privateKey = Base64.decode(privateKey)
+			val publicKey: String
+			val privateKey: String
+			val keyHash: String
+			if (keys.areValid(username)) {
+				publicKey = keys.publicKey
+				privateKey = keys.privateKey
+				keyHash = keys.keyHash
 			} else {
+				val enc = Encryptor(null, null)
 				enc.generateKeys()
-				publicKey = Base64.encode(enc.publicKey!!)
-				privateKey = Base64.encode(enc.privateKey!!)
+				val publicKeyBytes = enc.publicKey
+				val privateKeyBytes = enc.privateKey
+				if (publicKeyBytes == null || privateKeyBytes == null) {
+					return@withContext Result.failure(Exception("Failed to generate keys"))
+				}
+				publicKey = Base64.encode(publicKeyBytes)
+				privateKey = Base64.encode(privateKeyBytes)
 				keyHash = Base64.encode(Encryptor.hash(publicKey))
-				dataStore.edit {
-					it[__publicKeyKey] = publicKey
-					it[__privateKeyKey] = privateKey
-					it[__keyHashKey] = keyHash
-					it[__keyOwnerKey] = name
+				credMan.updateKeys {
+					Keys(
+						publicKey = publicKey,
+						privateKey = privateKey,
+						keyHash = keyHash,
+						keyOwner = username,
+					)
 				}
 			}
 
@@ -193,14 +190,15 @@ class ServerInterface(context: Context, model: MainViewModel) {
 
 			restAPI<LoginRequest, LoginResponse>(
 				"https://$server/api/login",
-				LoginRequest(name, passwd, publicKey, keyHash)
+				LoginRequest(username, passwd, publicKey, keyHash)
 			).mapCatching {
-				val newCred = cred.copy(
-					id = it.id,
-					token = it.token,
-					enc = enc
-				)
-				newCred
+				credMan.updateTmpCred {
+					TmpCredentials(
+						id = it.id,
+						token = it.token,
+					)
+				}
+				Unit
 			}
 		}
 	}
@@ -225,7 +223,11 @@ class ServerInterface(context: Context, model: MainViewModel) {
 	}
 
 	@OptIn(ExperimentalEncodingApi::class)
-	suspend fun sendLoc(cred: Credentials, loc: Location): Result<Unit> {
+	suspend fun sendLoc(loc: Location, contacts: List<Contact>): Result<Unit> {
+		if (contacts.isEmpty()) {
+			return Result.success(Unit)
+		}
+
 		return withContext(Dispatchers.IO) {
 			data class Message(
 				val to: Long,
@@ -249,13 +251,9 @@ class ServerInterface(context: Context, model: MainViewModel) {
 				val updatedKeys: List<SendResponseItem>,
 			)
 
-			var contacts = model.contactsMan.contacts.value.filter { it.send }
-			if (contacts.isEmpty()) {
-				return@withContext Result.success(Unit)
-			}
-
+			// TODO - should specify precision of the `toString()` conversion ??
 			val data = loc.latitude.toString() + "," + loc.longitude.toString()
-			var items = mutableListOf<Message>()
+			val items = mutableListOf<Message>()
 			for (contact in contacts) {
 				if (contact.publicKey.isEmpty() || contact.keyHash.isEmpty()) {
 					// We don't have the contact's public key yet,
@@ -265,8 +263,7 @@ class ServerInterface(context: Context, model: MainViewModel) {
 					items.add(Message(contact.id, "", ""))
 				} else {
 					try {
-						var enc = Encryptor()
-						enc.publicKey = Base64.decode(contact.publicKey)
+						val enc = Encryptor(Base64.decode(contact.publicKey), null)
 						val prefix = "valid ${contact.id}:"
 						val encrypted = enc.encrypt(data, prefix)
 						items.add(Message(contact.id, encrypted, contact.keyHash))
@@ -276,29 +273,28 @@ class ServerInterface(context: Context, model: MainViewModel) {
 				}
 			}
 
+			val tmpCred = credMan.tmpCred.value
 			restAPI<SendRequest, SendResponse>(
 				"https://$server/api/send",
-				SendRequest(cred.id, cred.token, items)
+				SendRequest(tmpCred.id, tmpCred.token, items)
 			).mapCatching {
-				if (it.updatedKeys.isEmpty()) {
-					return@mapCatching
-				}
-
-				val map = it.updatedKeys.associateBy { it.to }
-
-				model.contactsMan.update {
-					val item = map[it.id]
-					if (item != null) {
-						it.copy(publicKey = item.key, keyHash = item.keyHash)
-					} else {
-						it
+				val updatedKeys = it.updatedKeys
+				if (updatedKeys.isNotEmpty()) {
+					coroutineScope.launch(Dispatchers.IO) {
+						contactsMan.edit { contactDao ->
+							for (item in updatedKeys) {
+								contactDao.updateKey(item.to, item.key, item.keyHash)
+							}
+						}
 					}
 				}
+				Unit
 			}
 		}
 	}
 
-	suspend fun recv(cred: Credentials, process: (Message) -> Unit): Result<Unit> {
+	@OptIn(ExperimentalEncodingApi::class)
+	suspend fun recv(process: (Message) -> Unit): Result<Unit> {
 		return withContext(Dispatchers.IO) {
 			data class RecvRequest(
 				val id: Long,
@@ -315,11 +311,13 @@ class ServerInterface(context: Context, model: MainViewModel) {
 				val items: List<RecvResponseItem>,
 			)
 
+			val cred = credMan.tmpCred.value
+			val keys = credMan.keys.value
 			restAPI<RecvRequest, RecvResponse>(
 				"https://$server/api/recv",
 				RecvRequest(cred.id, cred.token)
 			).mapCatching {
-				val enc = cred.enc
+				val enc = Encryptor(null, Base64.decode(keys.publicKey))
 				val prefix = "valid ${cred.id}:"
 				val now = Instant.now()
 				for (item in it.items) {
@@ -333,6 +331,7 @@ class ServerInterface(context: Context, model: MainViewModel) {
 						}
 					}
 				}
+				Unit
 			}
 		}
 	}

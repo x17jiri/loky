@@ -3,6 +3,10 @@ package com.x17jiri.Loky
 import android.content.Context
 import android.content.Intent
 import android.location.Location
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -17,51 +21,41 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-class MainViewModel(private var context: Context): ViewModel() {
-	val credMan = CredentialsManager(context.dataStore)
-	val server = ServerInterface(context, this)
-	val isLocationServiceRunning = LocationServiceState.isRunning
-	val database = AppDatabase.getInstance(context)
-	val contactsMan = ContactsManager(database, viewModelScope)
+class MainViewModel(val context: Context): ViewModel() {
+	val credMan = context.__credMan
+	val contactsMan = context.__contactsMan
+	val server = context.__server
 	var receiver = Receiver(this)
 
-	init {
-		runBlocking {
-			credMan.init()
-		}
-		viewModelScope.launch {
-			credMan.objserve()
-		}
-		viewModelScope.launch(Dispatchers.IO) {
-			contactsMan.init()
-		}
-
-		viewModelScope.launch {
-			LocationServiceState.locationFlow.collect {
-				sendLoc(it)
-			}
-		}
-	}
-
-	fun sendLoc(loc: Location) {
-		Log.d("Locodile", "MainViewModel.sendLoc: loc=$loc")
-		try {
-			val cred = credMan.credentials.value
-			Log.d("Locodile", "MainViewModel.sendLoc: cred=$cred")
-			viewModelScope.launch(Dispatchers.IO) {
-				server.sendLoc(cred, loc)
-			}
-		} catch (e: Exception) {
-			Log.d("Locodile", "MainViewModel.sendLoc: e=$e")
-		}
-	}
-
 	fun startLocationService() {
-		context.startForegroundService(Intent(context, LocationService::class.java))
+		try {
+			//requestIgnoreBatteryOptimization()
+			val serviceIntent = Intent(context, LocationService::class.java)
+			context.startForegroundService(serviceIntent)
+		} catch (e: Exception) {
+			Log.d("Locodile", "MainViewModel.startLocationService: e=$e")
+		}
 	}
 
 	fun stopLocationService() {
-		context.stopService(Intent(context, LocationService::class.java))
+		val intent = Intent(
+			Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+			android.net.Uri.parse("package:${context.packageName}"),
+			context,
+			LocationService::class.java
+		)
+		context.stopService(intent)
+	}
+
+	fun requestIgnoreBatteryOptimization() {
+		try {
+			val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+				data = Uri.parse("package:${context.packageName}")
+			}
+			context.startActivity(intent)
+		} catch (e: Exception) {
+			Log.d("Locodile", "MainViewModel.requestIgnoreBatteryOptimization: e=$e")
+		}
 	}
 }
 
@@ -74,4 +68,3 @@ class MainViewModelFactory(private val context: Context) : ViewModelProvider.Fac
 		throw IllegalArgumentException("Unknown ViewModel class")
 	}
 }
-

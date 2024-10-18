@@ -259,6 +259,7 @@ fun MapView(navController: NavController, model: MainViewModel, context: Context
 						checked = isServiceRunning,
 						onCheckedChange = {
 							if (it) {
+								model.requestIgnoreBatteryOptimization()
 								model.startLocationService()
 							} else {
 								model.stopLocationService()

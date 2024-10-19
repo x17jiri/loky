@@ -46,12 +46,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.Executor
 
-object LocationServiceState {
-	val __isRunning = MutableStateFlow(false)
-	val isRunning: StateFlow<Boolean> = __isRunning.asStateFlow()
-}
-
 class LocationService: Service() {
+	companion object {
+		val __isRunning = MutableStateFlow(false)
+		val isRunning: StateFlow<Boolean> = __isRunning.asStateFlow()
+	}
+	
 	private val CHANNEL_ID = "Locodile.LocationService"
 	private val NOTIFICATION_ID = 1
 	private lateinit var serviceScope: CoroutineScope
@@ -79,7 +79,7 @@ class LocationService: Service() {
 		locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
 		createNotificationChannel()
-		LocationServiceState.__isRunning.value = true
+		__isRunning.value = true
 	}
 
 	private fun createNotificationChannel() {
@@ -169,7 +169,7 @@ class LocationService: Service() {
 		}
 
 		serviceScope.cancel()
-		LocationServiceState.__isRunning.value = false
+		__isRunning.value = false
 	}
 
 	override fun onBind(intent: Intent?): IBinder? = null

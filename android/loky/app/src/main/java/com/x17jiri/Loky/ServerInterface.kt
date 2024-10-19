@@ -191,11 +191,11 @@ class ServerInterface(
 			restAPI<LoginRequest, LoginResponse>(
 				"https://$server/api/login",
 				LoginRequest(username, passwd, publicKey, keyHash)
-			).mapCatching {
+			).mapCatching { value ->
 				credMan.updateTmpCred {
 					TmpCredentials(
-						id = it.id,
-						token = it.token,
+						id = value.id,
+						token = value.token,
 					)
 				}
 				Unit

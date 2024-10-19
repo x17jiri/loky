@@ -31,7 +31,7 @@ class Receiver(model: MainViewModel) {
 
 	suspend fun receive() {
 		__data.update { oldData ->
-			var newData: HashMap<Long, MutableList<DataPoint>> = HashMap()
+			val newData: HashMap<Long, MutableList<DataPoint>> = HashMap()
 
 			// filter out overything older than 2 hours
 			val now = Instant.now()
@@ -42,8 +42,7 @@ class Receiver(model: MainViewModel) {
 				newData[k] = filtered.toMutableList()
 			}
 
-			val cred = model.credMan.credentials.value
-			server.recv(cred) { msg ->
+			server.recv { msg ->
 				Log.d("Locodile", "Receiver.receive: msg=$msg")
 				if (msg.timestamp.isAfter(cutoff)) {
 					val dataPoint = DataPoint(msg.lat, msg.lon, msg.timestamp)

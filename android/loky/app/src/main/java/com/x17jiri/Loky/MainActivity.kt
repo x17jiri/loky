@@ -89,6 +89,8 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.room.ColumnInfo
+import androidx.room.PrimaryKey
 import com.mapbox.android.core.permissions.PermissionsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +110,7 @@ import com.mapbox.maps.extension.compose.annotation.generated.PolylineAnnotation
 import com.mapbox.maps.plugin.PuckBearing
 import com.mapbox.maps.plugin.locationcomponent.createDefault2DPuck
 import com.mapbox.maps.plugin.locationcomponent.location
+import kotlinx.coroutines.GlobalScope
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -147,13 +150,12 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 	) {
 		Text("Loading...", fontSize = 24.sp)
 		LaunchedEffect(Unit) {
-			val cred = model.credMan.credentials.value
+			val cred = model.credMan.cred.value
 			if (cred.user.isNotEmpty() && cred.passwd.isNotEmpty()) {
 				scope.launch(Dispatchers.IO) {
-					model.server.login(cred).fold(
+					model.server.login().fold(
 						onSuccess = {
 							Log.d("Locodile", "storing credentials: ${it}")
-							model.credMan.credentials.value = it
 							withContext(Dispatchers.Main) {
 								navController.navigate("map") {
 									popUpTo(navController.graph.startDestinationId) { inclusive = true }
@@ -180,7 +182,7 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 
 @Composable
 fun LoginScreen(context: Context, model: MainViewModel, navController: NavController, message: String) {
-	val cred by model.credMan.credentials.collectAsState()
+	val cred by model.credMan.cred.collectAsState()
 	var failedDialog by remember { mutableStateOf(message) }
 	Column(
 		modifier = Modifier.fillMaxSize(),
@@ -193,7 +195,11 @@ fun LoginScreen(context: Context, model: MainViewModel, navController: NavContro
 		) {
 			TextField(
 				value = cred.user,
-				onValueChange = { model.credMan.credentials.value = Credentials(it, cred.passwd) },
+				onValueChange = { newName ->
+					model.credMan.coroutineScope.launch {
+						model.credMan.updateCred { cred -> cred.copy(user = newName) }
+					}
+				},
 				label = { Text("Username") },
 				modifier = Modifier
 					.fillMaxWidth()
@@ -201,7 +207,11 @@ fun LoginScreen(context: Context, model: MainViewModel, navController: NavContro
 			)
 			TextField(
 				value = cred.passwd,
-				onValueChange = { model.credMan.credentials.value = Credentials(cred.user, it) },
+				onValueChange = { newPasswd ->
+					model.credMan.coroutineScope.launch {
+						model.credMan.updateCred { cred -> cred.copy(passwd = newPasswd) }
+					}
+				},
 				label = { Text("Password") },
 				modifier = Modifier
 					.fillMaxWidth()
@@ -254,12 +264,12 @@ fun MapView(navController: NavController, model: MainViewModel, context: Context
 				modifier = Modifier.fillMaxWidth()
 			) {
 				Box {
-					val isServiceRunning by model.isLocationServiceRunning.collectAsState()
+					val isServiceRunning by LocationService.isRunning.collectAsState()
 					Switch(
 						checked = isServiceRunning,
 						onCheckedChange = {
 							if (it) {
-								model.requestIgnoreBatteryOptimization()
+								//model.requestIgnoreBatteryOptimization()
 								model.startLocationService()
 							} else {
 								model.stopLocationService()
@@ -302,7 +312,7 @@ fun MapView(navController: NavController, model: MainViewModel, context: Context
 							lineWidth = 5.0
 						}
 					}
-					
+
 					MapEffect(Unit) { mapView ->
 						mapView.location.updateSettings {
 							locationPuck = createDefault2DPuck(withBearing = true)
@@ -474,7 +484,7 @@ enum class AddContactState {
 @Composable
 fun Contacts(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
 	SettingsScreen("Contacts", navController) {
-		val contacts by model.contactsMan.contacts.collectAsState()
+		val contacts by model.contactsMan.flow().collectAsState(emptyList())
 		var itemToDel by remember { mutableStateOf<Long?>(null) }
 		var addContactState by remember { mutableStateOf(AddContactState.Hidden) }
 		Box(modifier = Modifier.fillMaxSize()) {
@@ -501,7 +511,13 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 							)
 							Switch(
 								checked = send,
-								onCheckedChange = { model.contactsMan.setSend(id, it) },
+								onCheckedChange = { value ->
+									model.contactsMan.coroutineScope.launch {
+										model.contactsMan.edit { contactDao ->
+											contactDao.setSend(id, value)
+										}
+									}
+								},
 								colors = SwitchDefaults.colors(
 									checkedTrackColor = Color(0.75f, 0.5f, 0.5f),
 								),
@@ -517,7 +533,13 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 							)
 							Switch(
 								checked = recv,
-								onCheckedChange = { model.contactsMan.setRecv(id, it) },
+								onCheckedChange = { value ->
+									model.contactsMan.coroutineScope.launch {
+										model.contactsMan.edit { contactDao ->
+											contactDao.setRecv(id, value)
+										}
+									}
+								},
 								colors = SwitchDefaults.colors(
 									checkedTrackColor = Color(0.5f, 0.75f, 0.5f),
 								),
@@ -564,7 +586,13 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 					ConfirmDialog(
 						"Delete ${item.name}?",
 						onDismiss = { itemToDel = null; },
-						onConfirm = { model.contactsMan.remove(id) }
+						onConfirm = {
+							model.contactsMan.coroutineScope.launch {
+								model.contactsMan.edit { contactDao ->
+									contactDao.delete(id)
+								}
+							}
+						}
 					)
 				}
 			}
@@ -579,7 +607,18 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 								model.server.userInfo(it).fold(
 									onSuccess = {
 										val id = it
-										model.contactsMan.add(id, userName)
+										model.contactsMan.edit { contactDao ->
+											contactDao.insertAll(
+												Contact(
+													id = id,
+													name = userName,
+													send = false,
+													recv = false,
+													publicKey = "",
+													keyHash = "",
+												)
+											)
+										}
 										withContext(Dispatchers.Main) {
 											addContactState = AddContactState.Hidden
 										}

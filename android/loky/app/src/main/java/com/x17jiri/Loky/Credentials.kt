@@ -120,6 +120,7 @@ class CredentialsManager(
 		__dataStore.edit {
 			val oldCreds = __getTmpCred(it)
 			val newCreds = func(oldCreds)
+			Log.d("Locodile", "updateTmpCred: oldCreds=$oldCreds, newCreds=$newCreds")
 			if (newCreds.id != oldCreds.id) {
 				it[__idKey] = newCreds.id.toString()
 			}

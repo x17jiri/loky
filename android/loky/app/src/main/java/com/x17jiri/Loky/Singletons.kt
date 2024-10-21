@@ -66,3 +66,11 @@ val Context.__contactsMan by SingletonBase { appContext, scope ->
 val Context.__server by SingletonBase { appContext, scope ->
 	ServerInterface(appContext, scope)
 }
+
+val Context.__inboxMan by SingletonBase { appContext, scope ->
+	InboxManager(appContext.__database, scope)
+}
+
+val Context.__settings by SingletonBase { appContext, scope ->
+	SettingsManager(appContext.__dataStore, scope)
+}

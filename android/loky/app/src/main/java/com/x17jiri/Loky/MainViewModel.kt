@@ -24,39 +24,10 @@ import kotlinx.coroutines.runBlocking
 class MainViewModel(val context: Context): ViewModel() {
 	val credMan = context.__credMan
 	val contactsMan = context.__contactsMan
+	val inboxMan = context.__inboxMan
+	val settings = context.__settings
 	val server = context.__server
-	var receiver = Receiver(this)
-
-	fun startLocationService() {
-		try {
-			//requestIgnoreBatteryOptimization()
-			val serviceIntent = Intent(context, LocationService::class.java)
-			context.startForegroundService(serviceIntent)
-		} catch (e: Exception) {
-			Log.d("Locodile", "MainViewModel.startLocationService: e=$e")
-		}
-	}
-
-	fun stopLocationService() {
-		val intent = Intent(
-			Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-			android.net.Uri.parse("package:${context.packageName}"),
-			context,
-			LocationService::class.java
-		)
-		context.stopService(intent)
-	}
-
-	fun requestIgnoreBatteryOptimization() {
-		try {
-			val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-				data = Uri.parse("package:${context.packageName}")
-			}
-			context.startActivity(intent)
-		} catch (e: Exception) {
-			Log.d("Locodile", "MainViewModel.requestIgnoreBatteryOptimization: e=$e")
-		}
-	}
+	val receiver = Receiver(server, inboxMan, viewModelScope)
 }
 
 class MainViewModelFactory(private val context: Context) : ViewModelProvider.Factory {

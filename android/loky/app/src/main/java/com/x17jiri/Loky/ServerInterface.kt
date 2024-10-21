@@ -53,7 +53,7 @@ class ServerInterface(
 	context: Context,
 	val coroutineScope: CoroutineScope,
 ) {
-	private val server = "10.0.0.2:9443"
+	private val server = "loky.x17jiri.online:9443"
 	private var trustManager: X509TrustManager
 	private var sslContext: SSLContext
 	private val gson = Gson()
@@ -280,11 +280,9 @@ class ServerInterface(
 			).mapCatching {
 				val updatedKeys = it.updatedKeys
 				if (updatedKeys.isNotEmpty()) {
-					coroutineScope.launch(Dispatchers.IO) {
-						contactsMan.edit { contactDao ->
-							for (item in updatedKeys) {
-								contactDao.updateKey(item.to, item.key, item.keyHash)
-							}
+					contactsMan.launchEdit { contactDao ->
+						for (item in updatedKeys) {
+							contactDao.updateKey(item.to, item.key, item.keyHash)
 						}
 					}
 				}
@@ -294,7 +292,7 @@ class ServerInterface(
 	}
 
 	@OptIn(ExperimentalEncodingApi::class)
-	suspend fun recv(process: (Message) -> Unit): Result<Unit> {
+	suspend fun recv(): Result<List<Message>> {
 		return withContext(Dispatchers.IO) {
 			data class RecvRequest(
 				val id: Long,
@@ -317,21 +315,23 @@ class ServerInterface(
 				"https://$server/api/recv",
 				RecvRequest(cred.id, cred.token)
 			).mapCatching {
-				val enc = Encryptor(null, Base64.decode(keys.publicKey))
+				val enc = Encryptor(null, Base64.decode(keys.privateKey))
 				val prefix = "valid ${cred.id}:"
-				val now = Instant.now()
-				for (item in it.items) {
+				val now = monotonicSeconds()
+				it.items.map { item ->
 					val decrypted = enc.decrypt(item.data, prefix)
 					if (decrypted != null) {
 						try {
 							val (lat, lon) = decrypted.split(",").map { it.toDouble() }
-							process(Message(item.from, lat, lon, now.minusSeconds(item.ageSeconds)))
+							Message(item.from, now - item.ageSeconds, lat, lon)
 						} catch (e: Exception) {
 							Log.d("Locodile", "ServerInterface.recv: e=$e")
+							null
 						}
+					} else {
+						null
 					}
-				}
-				Unit
+				}.filterNotNull()
 			}
 		}
 	}

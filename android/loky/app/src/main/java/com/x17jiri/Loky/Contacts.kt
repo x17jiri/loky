@@ -26,14 +26,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-@Entity(tableName = "contacts")
+@Entity(
+	tableName = "contacts",
+	primaryKeys = ["id"],
+)
 data class Contact(
-	@PrimaryKey val id: Long,
-	@ColumnInfo(name = "name") val name: String,
-	@ColumnInfo(name = "send") var send: Boolean,
-	@ColumnInfo(name = "recv") var recv: Boolean,
-	@ColumnInfo(name = "public_key") var publicKey: String,
-	@ColumnInfo(name = "key_hash") var keyHash: String,
+	val id: Long,
+	val name: String,
+	val send: Boolean,
+	val recv: Boolean,
+	val publicKey: String,
+	val keyHash: String,
 )
 
 @Dao
@@ -44,8 +47,8 @@ interface ContactDao {
 	@Query("UPDATE contacts SET recv = :recv WHERE id = :id")
 	fun setRecv(id: Long, recv: Boolean)
 
-    @Query("UPDATE contacts SET public_key = :newPublicKey, key_hash = :newKeyHash WHERE id = :contactId")
-    fun updateKey(contactId: Long, newPublicKey: String, newKeyHash: String)
+	@Query("UPDATE contacts SET publicKey = :newPublicKey, keyHash = :newKeyHash WHERE id = :contactId")
+	fun updateKey(contactId: Long, newPublicKey: String, newKeyHash: String)
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	fun insertAll(vararg contacts: Contact)
@@ -54,7 +57,7 @@ interface ContactDao {
 	fun delete(id: Long)
 
 	@Query("SELECT * FROM contacts")
-    fun flow(): Flow<List<Contact>>
+	fun flow(): Flow<List<Contact>>
 }
 
 class ContactsManager(
@@ -71,9 +74,11 @@ class ContactsManager(
 		return __contactDao.flow()
 	}
 
-    suspend fun edit(block: suspend (ContactDao) -> Unit) {
-        __mutex.withLock {
-			block(__contactDao)
-        }
+    fun launchEdit(block: suspend (ContactDao) -> Unit) {
+		coroutineScope.launch {
+			__mutex.withLock {
+				block(__contactDao)
+			}
+		}
     }
 }

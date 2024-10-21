@@ -15,7 +15,7 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-class Encryptor(var __publicKey: ByteArray?, var __privateKey: ByteArray?) {
+class Encryptor(val __publicKey: ByteArray?, val __privateKey: ByteArray?) {
 	companion object {
 		fun hash(input: String): ByteArray {
 			val md = MessageDigest.getInstance("SHA-256")
@@ -63,18 +63,22 @@ class Encryptor(var __publicKey: ByteArray?, var __privateKey: ByteArray?) {
 		get() = __rsaPrivateKey?.encoded
 
 	init {
-		if (__publicKey != null && __privateKey != null) {
+		if (__publicKey != null || __privateKey != null) {
 			val kf = KeyFactory.getInstance("RSA")
 			if (__publicKey != null) {
 				try {
-					__rsaPublicKey = kf.generatePublic(X509EncodedKeySpec(__publicKey))
+					val key: ByteArray = __publicKey
+					__rsaPublicKey = kf.generatePublic(X509EncodedKeySpec(key))
 				} catch (e: Exception) {
+					Log.e("Locodile.Encryptor", "Failed to read public key", e)
 				}
 			}
 			if (__privateKey != null) {
 				try {
-					__rsaPrivateKey = kf.generatePrivate(PKCS8EncodedKeySpec(__privateKey))
+					val key: ByteArray = __privateKey
+					__rsaPrivateKey = kf.generatePrivate(PKCS8EncodedKeySpec(key))
 				} catch (e: Exception) {
+					Log.e("Locodile.Encryptor", "Failed to generate private key", e)
 				}
 			}
 		}

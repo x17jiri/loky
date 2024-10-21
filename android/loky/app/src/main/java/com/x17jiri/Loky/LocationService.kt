@@ -14,12 +14,14 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.location.LocationRequest
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.material.icons.Icons
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -50,13 +53,44 @@ class LocationService: Service() {
 	companion object {
 		val __isRunning = MutableStateFlow(false)
 		val isRunning: StateFlow<Boolean> = __isRunning.asStateFlow()
+
+		fun start(context: Context) {
+			try {
+				val serviceIntent = Intent(context, LocationService::class.java)
+				context.startForegroundService(serviceIntent)
+			} catch (e: Exception) {
+				Log.d("Locodile", "MainViewModel.startLocationService: e=$e")
+			}
+		}
+
+		fun stop(context: Context) {
+			val intent = Intent(
+				Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+				android.net.Uri.parse("package:${context.packageName}"),
+				context,
+				LocationService::class.java
+			)
+			context.stopService(intent)
+		}
+
+		fun requestIgnoreBatteryOptimization(context: Context) {
+			try {
+				val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+					data = Uri.parse("package:${context.packageName}")
+				}
+				context.startActivity(intent)
+			} catch (e: Exception) {
+				Log.d("Locodile", "MainViewModel.requestIgnoreBatteryOptimization: e=$e")
+			}
+		}
 	}
-	
+
 	private val CHANNEL_ID = "Locodile.LocationService"
 	private val NOTIFICATION_ID = 1
 	private lateinit var serviceScope: CoroutineScope
 	private lateinit var server: ServerInterface
 	private lateinit var contacts: StateFlow<List<Contact>>
+	private lateinit var shareFreq: StateFlow<SharingFrequency>
 	private lateinit var powerManager: PowerManager
 	private lateinit var wakeLock: PowerManager.WakeLock
 	private lateinit var locationManager: LocationManager
@@ -72,6 +106,12 @@ class LocationService: Service() {
 			list.filter { contact -> contact.send }
 		}
 		contacts = contactFlow.stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
+
+		val shareFreqFlow =
+			this
+			.__settings
+			.shareFreqFlow()
+		shareFreq = shareFreqFlow.stateIn(serviceScope, SharingStarted.Eagerly, SharingFrequency())
 
 		powerManager = getSystemService(POWER_SERVICE) as PowerManager
 		wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Locodile:LocationService")
@@ -115,10 +155,14 @@ class LocationService: Service() {
 				locationManager.removeUpdates(oldListener)
 			}
 
+			val shareFreq = this.shareFreq.value
+			Log.d("Locodile.LocationService", "Requesting location updates: ${shareFreq.ms}")
+			Log.d("Locodile.LocationService", "Requesting location updates min: ${shareFreq.msMin}")
+			Log.d("Locodile.LocationService", "Requesting location updates max: ${shareFreq.msMax}")
 			val locationRequest =
-					LocationRequest.Builder(10_000L)
-						.setMinUpdateIntervalMillis(5_000L)
-						.setMaxUpdateDelayMillis(15_000L)
+					LocationRequest.Builder(shareFreq.ms.toLong())
+						.setMinUpdateIntervalMillis(shareFreq.msMin.toLong())
+						.setMaxUpdateDelayMillis(shareFreq.msMax.toLong())
 						.setQuality(LocationRequest.QUALITY_HIGH_ACCURACY)
 						.build()
 

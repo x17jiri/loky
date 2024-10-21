@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -52,9 +53,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -72,9 +75,11 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
@@ -111,9 +116,13 @@ import com.mapbox.maps.plugin.PuckBearing
 import com.mapbox.maps.plugin.locationcomponent.createDefault2DPuck
 import com.mapbox.maps.plugin.locationcomponent.location
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.flow.map
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 class MainActivity: ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,14 +140,26 @@ fun NavigationGraph(context: Context, scope: CoroutineScope) {
 	val model: MainViewModel = viewModel(factory = MainViewModelFactory(context))
 	val navController = rememberNavController()
 	NavHost(navController = navController, startDestination = "loading") {
-		composable("loading")  { LoadingScreen(navController, model, scope) }
+		composable("loading")  {
+			LoadingScreen(navController, model, scope)
+		}
 		composable("login/{message}") {
 			var msg = it.arguments?.getString("message") ?: ""
 			msg = URLDecoder.decode(msg, StandardCharsets.UTF_8.toString())
-			LoginScreen(context, model, navController, msg)
+			LoginScreen(navController, model, scope, msg)
 		}
-		composable("map") { MapView(navController, model, context) }
-		composable("contacts") { Contacts(navController, model, scope) }
+		composable("map") {
+			MapView(navController, model, scope)
+		}
+		composable("contacts") {
+			Contacts(navController, model, scope)
+		}
+		composable("myprofile") {
+			MyProfile(navController)
+		}
+		composable("about") {
+			About(navController)
+		}
 	}
 }
 
@@ -150,6 +171,7 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 	) {
 		Text("Loading...", fontSize = 24.sp)
 		LaunchedEffect(Unit) {
+			model.inboxMan.launchCleanUp()
 			val cred = model.credMan.cred.value
 			if (cred.user.isNotEmpty() && cred.passwd.isNotEmpty()) {
 				scope.launch(Dispatchers.IO) {
@@ -181,7 +203,7 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 }
 
 @Composable
-fun LoginScreen(context: Context, model: MainViewModel, navController: NavController, message: String) {
+fun LoginScreen(navController: NavController, model: MainViewModel, scope: CoroutineScope, message: String) {
 	val cred by model.credMan.cred.collectAsState()
 	var failedDialog by remember { mutableStateOf(message) }
 	Column(
@@ -196,7 +218,7 @@ fun LoginScreen(context: Context, model: MainViewModel, navController: NavContro
 			TextField(
 				value = cred.user,
 				onValueChange = { newName ->
-					model.credMan.coroutineScope.launch {
+					runBlocking {
 						model.credMan.updateCred { cred -> cred.copy(user = newName) }
 					}
 				},
@@ -208,7 +230,7 @@ fun LoginScreen(context: Context, model: MainViewModel, navController: NavContro
 			TextField(
 				value = cred.passwd,
 				onValueChange = { newPasswd ->
-					model.credMan.coroutineScope.launch {
+					runBlocking {
 						model.credMan.updateCred { cred -> cred.copy(passwd = newPasswd) }
 					}
 				},
@@ -246,13 +268,15 @@ fun LoginScreen(context: Context, model: MainViewModel, navController: NavContro
 }
 
 @Composable
-fun MapView(navController: NavController, model: MainViewModel, context: Context) {
+fun MapView(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
 	DisposableEffect(Unit) {
-		model.receiver.startReceiving()
+		model.receiver.start()
 		onDispose {
-			model.receiver.stopReceiving()
+			model.receiver.stop()
 		}
 	}
+
+	var showSettings by remember { mutableStateOf(false) }
 
 	Scaffold(
 		modifier = Modifier
@@ -270,9 +294,9 @@ fun MapView(navController: NavController, model: MainViewModel, context: Context
 						onCheckedChange = {
 							if (it) {
 								//model.requestIgnoreBatteryOptimization()
-								model.startLocationService()
+								LocationService.start(model.context)
 							} else {
-								model.stopLocationService()
+								LocationService.stop(model.context)
 							}
 						},
 						modifier = Modifier.padding(start = 10.dp, end = 10.dp),
@@ -282,7 +306,7 @@ fun MapView(navController: NavController, model: MainViewModel, context: Context
 					Text("Share location")
 				}
 				Box {
-					IconButton(onClick = { navController.navigate("contacts") }) {
+					IconButton(onClick = { showSettings = true }) {
 						Icon(
 							imageVector = Icons.Default.Settings,
 							contentDescription = "Settings",
@@ -298,19 +322,47 @@ fun MapView(navController: NavController, model: MainViewModel, context: Context
 					.weight(1.0f)
 					.fillMaxWidth()
 			) {
+				val contactsFlow = model.contactsMan.flow().map { list ->
+					list.filter { contact -> contact.recv }
+				}
+				val contacts by contactsFlow.collectAsState(emptyList())
 				val data by model.receiver.data.collectAsState()
 				var mapViewportState = rememberMapViewportState {}
 				MapboxMap(
 					Modifier.fillMaxSize(),
 					mapViewportState = mapViewportState,
 				) {
-					for ((k, v) in data) {
+					for (contact in contacts) {
+						val values = data[contact.id]
+						if (values == null) {
+							continue
+						}
 						PolylineAnnotation(
-							points = v.map { Point.fromLngLat(it.lon, it.lat) }
+							points = values.map { Point.fromLngLat(it.lon, it.lat) }
 						) {
 							lineColor = Color(0xffee4e8b)
 							lineWidth = 5.0
 						}
+						/*
+						for (i in 1 ..< values.size) {
+							val from = values[i - 1]
+							val to = values[i]
+							val age = (now - from.timestamp).toDouble()
+							// fading:
+							// 		0.0 -> completely visible
+							// 		1.0 -> completely faded
+							val fading = min(1.0, max(0.0, age / 7200.0))
+							val alpha = 1.0 - fading
+							PolylineAnnotation(
+								points = listOf(
+									Point.fromLngLat(from.lon, from.lat),
+									Point.fromLngLat(to.lon, to.lat),
+								)
+							) {
+								lineColor = Color(0xee4e8b).copy(alpha = alpha.toFloat())
+								lineWidth = 5.0
+							}
+						}*/
 					}
 
 					MapEffect(Unit) { mapView ->
@@ -325,11 +377,27 @@ fun MapView(navController: NavController, model: MainViewModel, context: Context
 				}
 			}
 		}
+		if (showSettings) {
+			val shareFreq = model.settings.shareFreq.value
+			Settings(
+				navController,
+				model,
+				scope,
+				onDismiss = {
+					val newShareFreq = model.settings.shareFreq.value
+					if (newShareFreq.ms != shareFreq.ms) {
+						LocationService.stop(model.context)
+						LocationService.start(model.context)
+					}
+					showSettings = false
+				}
+			)
+		}
 	}
 }
 
 @Composable
-fun SettingsScreen(
+fun ScreenHeader(
 	name: String,
 	navController: NavController,
 	block: @Composable () -> Unit
@@ -337,7 +405,8 @@ fun SettingsScreen(
 	Scaffold(
 		modifier = Modifier
 			.fillMaxSize()
-			.statusBarsPadding().navigationBarsPadding(),
+			.statusBarsPadding()
+			.navigationBarsPadding(),
 		topBar = {
 			Row(
 				verticalAlignment = Alignment.CenterVertically,
@@ -349,7 +418,13 @@ fun SettingsScreen(
 						contentDescription = "Back"
 					)
 				}
-				Text(name)
+				Text(
+					name,
+					style = MaterialTheme.typography.bodyLarge.copy(
+						fontWeight = FontWeight.Bold,
+						fontSize = 24.sp,
+					)
+				)
 			}
 		},
 		//floatingActionButton = floatingActionButton,
@@ -483,7 +558,7 @@ enum class AddContactState {
 
 @Composable
 fun Contacts(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
-	SettingsScreen("Contacts", navController) {
+	ScreenHeader("Contacts", navController) {
 		val contacts by model.contactsMan.flow().collectAsState(emptyList())
 		var itemToDel by remember { mutableStateOf<Long?>(null) }
 		var addContactState by remember { mutableStateOf(AddContactState.Hidden) }
@@ -512,10 +587,8 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 							Switch(
 								checked = send,
 								onCheckedChange = { value ->
-									model.contactsMan.coroutineScope.launch {
-										model.contactsMan.edit { contactDao ->
-											contactDao.setSend(id, value)
-										}
+									model.contactsMan.launchEdit { contactDao ->
+										contactDao.setSend(id, value)
 									}
 								},
 								colors = SwitchDefaults.colors(
@@ -534,10 +607,8 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 							Switch(
 								checked = recv,
 								onCheckedChange = { value ->
-									model.contactsMan.coroutineScope.launch {
-										model.contactsMan.edit { contactDao ->
-											contactDao.setRecv(id, value)
-										}
+									model.contactsMan.launchEdit { contactDao ->
+										contactDao.setRecv(id, value)
 									}
 								},
 								colors = SwitchDefaults.colors(
@@ -587,10 +658,8 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 						"Delete ${item.name}?",
 						onDismiss = { itemToDel = null; },
 						onConfirm = {
-							model.contactsMan.coroutineScope.launch {
-								model.contactsMan.edit { contactDao ->
-									contactDao.delete(id)
-								}
+							model.contactsMan.launchEdit { contactDao ->
+								contactDao.delete(id)
 							}
 						}
 					)
@@ -607,7 +676,7 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 								model.server.userInfo(it).fold(
 									onSuccess = {
 										val id = it
-										model.contactsMan.edit { contactDao ->
+										model.contactsMan.launchEdit { contactDao ->
 											contactDao.insertAll(
 												Contact(
 													id = id,
@@ -648,6 +717,220 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 		}
 	}
 }
+
+@SuppressLint("StateFlowValueCalledInComposition")
+@Composable
+fun Settings(
+	navController: NavController,
+	model: MainViewModel,
+	scope: CoroutineScope,
+	onDismiss: () -> Unit,
+) {
+	Dialog(onDismissRequest = onDismiss) {
+		Surface(
+			shape = MaterialTheme.shapes.medium,
+			modifier = Modifier
+				.fillMaxWidth()
+				.wrapContentHeight()
+		) {
+			Column(
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
+					.verticalScroll(rememberScrollState())
+			) {
+				Row(
+					verticalAlignment = Alignment.CenterVertically,
+					modifier = Modifier.fillMaxWidth()
+				) {
+					Text(
+						"Settings",
+						style = MaterialTheme.typography.bodyLarge.copy(
+							fontWeight = FontWeight.Bold,
+							fontSize = 24.sp
+						),
+						modifier = Modifier.weight(1.0f)
+					)
+					// "x" icon to close the dialog
+					IconButton(
+						onClick = onDismiss,
+					) {
+						Icon(
+							Icons.Filled.Close,
+							contentDescription = "Close"
+						)
+					}
+				}
+				Spacer(modifier = Modifier.height(20.dp))
+
+				Column(
+					modifier = Modifier
+						.padding(10.dp)
+						.fillMaxWidth()
+				) {
+					Text(
+						"Location Sharing Frequency",
+						style = MaterialTheme.typography.bodyLarge.copy(
+							fontWeight = FontWeight.Bold,
+						),
+					)
+					val shareFreqValues = listOf(
+						Pair(5.0, "5 seconds"),
+						Pair(15.0, "15 seconds"),
+						Pair(30.0, "30 seconds"),
+						Pair(60.0, "1 minute"),
+						Pair(120.0, "2 minutes"),
+						Pair(180.0, "3 minutes"),
+					)
+					val shareFreq = model.settings.shareFreq.value.seconds
+					var closestIndex = 0
+					var closestDistance = (shareFreq - shareFreqValues[0].first) * (shareFreq - shareFreqValues[0].first)
+					for (i in 1 until shareFreqValues.size) {
+						val distance = (shareFreq - shareFreqValues[i].first) * (shareFreq - shareFreqValues[i].first)
+						if (distance < closestDistance) {
+							closestIndex = i
+							closestDistance = distance
+						}
+					}
+					var sliderValue by remember { mutableStateOf(closestIndex.toFloat())}
+					var textValue by remember { mutableStateOf(shareFreqValues[closestIndex].second) }
+					Slider(
+						value = sliderValue,
+						onValueChange = { newValue ->
+							val sec = shareFreqValues[newValue.roundToInt()]
+							textValue = sec.second
+							model.settings.launchUpdateShareFreq { freq ->
+								SharingFrequency(sec.first)
+							}
+							sliderValue = newValue
+						},
+						valueRange = 0.0f..(shareFreqValues.size - 1).toFloat(),
+						steps = shareFreqValues.size - 2,
+						modifier = Modifier.fillMaxWidth(),
+					)
+					Text("Every ${textValue}")
+					Spacer(modifier = Modifier.height(5.dp))
+					Text("Note: The more frequent the updates, the more battery usage.")
+				}
+				Spacer(modifier = Modifier.height(5.dp))
+				HorizontalDivider()
+				Spacer(modifier = Modifier.height(5.dp))
+
+				Column(
+					modifier = Modifier
+						.clickable {
+							navController.navigate("myprofile")
+							onDismiss()
+						}
+						.padding(10.dp)
+						.fillMaxWidth(),
+				) {
+					Text(
+						"My Profile",
+						style = MaterialTheme.typography.bodyLarge.copy(
+							fontWeight = FontWeight.Bold,
+						),
+					)
+					Text("Edit profile")
+				}
+				Spacer(modifier = Modifier.height(5.dp))
+				HorizontalDivider()
+				Spacer(modifier = Modifier.height(5.dp))
+
+				Column(
+					modifier = Modifier
+						.clickable {
+							navController.navigate("contacts")
+							onDismiss()
+						}
+						.padding(10.dp)
+						.fillMaxWidth(),
+				) {
+					Text(
+						"Contacts",
+						style = MaterialTheme.typography.bodyLarge.copy(
+							fontWeight = FontWeight.Bold,
+						),
+					)
+					Text("Edit contacts")
+				}
+				Spacer(modifier = Modifier.height(5.dp))
+				HorizontalDivider()
+				Spacer(modifier = Modifier.height(5.dp))
+
+				Column(
+					modifier = Modifier
+						.clickable {
+							navController.navigate("about")
+							onDismiss()
+						}
+						.padding(10.dp)
+						.fillMaxWidth(),
+				) {
+					Text(
+						"About",
+						style = MaterialTheme.typography.bodyLarge.copy(
+							fontWeight = FontWeight.Bold,
+						),
+					)
+				}
+				Spacer(modifier = Modifier.height(10.dp))
+
+			}
+		}
+	}
+}
+
+@Composable
+fun VerticalLine3D(
+	lightColor: Color = Color.LightGray,
+	darkColor: Color = Color.DarkGray,
+	thickness: Dp = 4.dp,
+	height: Dp = Dp.Unspecified // You can specify a fixed height or fill the parent
+) {
+	Row(Modifier.height(height)) {
+		// Left side simulating light source
+		Box(
+			modifier = Modifier
+				.width(thickness / 2)
+				.fillMaxHeight()
+				.background(lightColor)
+		)
+
+		// Right side simulating shadow
+		Box(
+			modifier = Modifier
+				.width(thickness / 2)
+				.fillMaxHeight()
+				.background(darkColor)
+		)
+	}
+}
+
+@Composable
+fun MyProfile(navController: NavController) {
+	ScreenHeader("My Profile", navController) {
+		Text("TODO: not implemented")
+	}
+}
+
+@Composable
+fun About(navController: NavController) {
+	ScreenHeader("About", navController) {
+			Column(
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
+					.verticalScroll(rememberScrollState())
+			) {
+				Text("x17 Loky version 0.1")
+				Text("commit: #TODO")
+				Spacer(modifier = Modifier.height(20.dp))
+				Text("(C) 2024 Jiri Bobek")
+			}
+	}
+}
+
 /*
 @Preview(showBackground = true)
 @Composable

@@ -55,12 +55,20 @@ val Context.__database by SingletonBase { appContext, scope ->
 	).build()
 }
 
-val Context.__credMan by SingletonBase { appContext, scope ->
-	CredentialsManager(appContext.__dataStore, scope)
+val Context.__contactsStore by SingletonBase { appContext, scope ->
+	ContactsDBStore(appContext.__database.contactDao(), scope)
 }
 
-val Context.__contactsMan by SingletonBase { appContext, scope ->
-	ContactsManager(appContext.__database, scope)
+val Context.__recvChanStateStore by SingletonBase { appContext, scope ->
+	RecvChanStore(appContext.__database.recvChanStateDao(), scope)
+}
+
+val Context.__sendChanStateStore by SingletonBase { appContext, scope ->
+	SendChanStore(appContext.__database.sendChanStateDao(), scope)
+}
+
+val Context.__credMan by SingletonBase { appContext, scope ->
+	CredentialsManager(appContext.__dataStore, scope)
 }
 
 val Context.__server by SingletonBase { appContext, scope ->
@@ -74,3 +82,4 @@ val Context.__inboxMan by SingletonBase { appContext, scope ->
 val Context.__settings by SingletonBase { appContext, scope ->
 	SettingsManager(appContext.__dataStore, scope)
 }
+

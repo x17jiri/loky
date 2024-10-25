@@ -222,6 +222,31 @@ class ServerInterface(
 		}
 	}
 
+	// TODO
+	// Every user has their list of keys:
+	//     - private
+	//     - public
+	//     - signature of public
+	//     - random ID of the key
+	//
+	// Send:
+	//     - just put the message in inbox
+	//         - sender key ID - 32 bits
+	//         - recipient key ID - 32 bits
+	//         - message encrypted using shared secret
+	//     - response:
+	//         - recipient's last known public key + signature + key ID
+	//
+	// Recv:
+	//     - get all messages from inbox
+	//     - check that recipient key is in my list of keys
+	//         - if not, throw away the message
+	//     - check that the message can be decrypted
+	//         - if it fails, request the whole list of the sender's keys and try again
+	//         - it can fail either because we don't have the sender's key
+	//         - or there is a new key with the same ID
+	//         - or possibly corruption, but then requesting new list of keys will not help anyway
+
 	@OptIn(ExperimentalEncodingApi::class)
 	suspend fun sendLoc(loc: Location, contacts: List<Contact>): Result<Unit> {
 		if (contacts.isEmpty()) {

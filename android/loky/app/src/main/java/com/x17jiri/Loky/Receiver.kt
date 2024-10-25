@@ -127,8 +127,8 @@ class Receiver(
 						time = 0
 						inboxMan.launchCleanUp()
 					}
-					delay(7_000)
-					time += 7
+					delay(4_000)
+					time += 4
 				}
 			}
 		}

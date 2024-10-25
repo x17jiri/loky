@@ -111,7 +111,10 @@ import com.mapbox.geojson.Point
 import com.mapbox.maps.extension.compose.MapEffect
 import com.mapbox.maps.extension.compose.MapboxMap
 import com.mapbox.maps.extension.compose.animation.viewport.rememberMapViewportState
+import com.mapbox.maps.extension.compose.annotation.IconImage
+import com.mapbox.maps.extension.compose.annotation.generated.PointAnnotation
 import com.mapbox.maps.extension.compose.annotation.generated.PolylineAnnotation
+import com.mapbox.maps.extension.compose.annotation.rememberIconImage
 import com.mapbox.maps.plugin.PuckBearing
 import com.mapbox.maps.plugin.locationcomponent.createDefault2DPuck
 import com.mapbox.maps.plugin.locationcomponent.location
@@ -306,6 +309,14 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 					Text("Share location")
 				}
 				Box {
+					IconButton(onClick = { navController.navigate("contacts") }) {
+						Icon(
+							imageVector = Icons.Default.Contacts,
+							contentDescription = "Contacts",
+						)
+					}
+				}
+				Box {
 					IconButton(onClick = { showSettings = true }) {
 						Icon(
 							imageVector = Icons.Default.Settings,
@@ -334,7 +345,7 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 				) {
 					for (contact in contacts) {
 						val values = data[contact.id]
-						if (values == null) {
+						if (values == null || values.isEmpty()) {
 							continue
 						}
 						PolylineAnnotation(
@@ -343,26 +354,14 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 							lineColor = Color(0xffee4e8b)
 							lineWidth = 5.0
 						}
-						/*
-						for (i in 1 ..< values.size) {
-							val from = values[i - 1]
-							val to = values[i]
-							val age = (now - from.timestamp).toDouble()
-							// fading:
-							// 		0.0 -> completely visible
-							// 		1.0 -> completely faded
-							val fading = min(1.0, max(0.0, age / 7200.0))
-							val alpha = 1.0 - fading
-							PolylineAnnotation(
-								points = listOf(
-									Point.fromLngLat(from.lon, from.lat),
-									Point.fromLngLat(to.lon, to.lat),
-								)
-							) {
-								lineColor = Color(0xee4e8b).copy(alpha = alpha.toFloat())
-								lineWidth = 5.0
-							}
-						}*/
+
+						val marker: IconImage = rememberIconImage(R.drawable.red_marker)
+						PointAnnotation(
+							point = Point.fromLngLat(values.last().lon, values.last().lat)
+						) {
+							iconImage = marker
+							iconSize = 1.5
+						}
 					}
 
 					MapEffect(Unit) { mapView ->
@@ -385,7 +384,7 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 				scope,
 				onDismiss = {
 					val newShareFreq = model.settings.shareFreq.value
-					if (newShareFreq.ms != shareFreq.ms) {
+					if (LocationService.isRunning.value && newShareFreq.ms != shareFreq.ms) {
 						LocationService.stop(model.context)
 						LocationService.start(model.context)
 					}
@@ -427,7 +426,6 @@ fun ScreenHeader(
 				)
 			}
 		},
-		//floatingActionButton = floatingActionButton,
 	) { innerPadding ->
 		Box(modifier = Modifier.padding(innerPadding)) {
 			block()
@@ -574,6 +572,7 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
 						modifier = Modifier
+							.clickable {}
 							.fillMaxWidth()
 							.padding(10.dp)
 					) {
@@ -840,27 +839,6 @@ fun Settings(
 				Column(
 					modifier = Modifier
 						.clickable {
-							navController.navigate("contacts")
-							onDismiss()
-						}
-						.padding(10.dp)
-						.fillMaxWidth(),
-				) {
-					Text(
-						"Contacts",
-						style = MaterialTheme.typography.bodyLarge.copy(
-							fontWeight = FontWeight.Bold,
-						),
-					)
-					Text("Edit contacts")
-				}
-				Spacer(modifier = Modifier.height(5.dp))
-				HorizontalDivider()
-				Spacer(modifier = Modifier.height(5.dp))
-
-				Column(
-					modifier = Modifier
-						.clickable {
 							navController.navigate("about")
 							onDismiss()
 						}
@@ -910,24 +888,31 @@ fun VerticalLine3D(
 @Composable
 fun MyProfile(navController: NavController) {
 	ScreenHeader("My Profile", navController) {
-		Text("TODO: not implemented")
+		Column(
+			modifier = Modifier
+				.padding(20.dp)
+				.fillMaxWidth()
+				.verticalScroll(rememberScrollState())
+		) {
+			Text("TODO: not implemented")
+		}
 	}
 }
 
 @Composable
 fun About(navController: NavController) {
 	ScreenHeader("About", navController) {
-			Column(
-				modifier = Modifier
-					.padding(20.dp)
-					.fillMaxWidth()
-					.verticalScroll(rememberScrollState())
-			) {
-				Text("x17 Loky version 0.1")
-				Text("commit: #TODO")
-				Spacer(modifier = Modifier.height(20.dp))
-				Text("(C) 2024 Jiri Bobek")
-			}
+		Column(
+			modifier = Modifier
+				.padding(20.dp)
+				.fillMaxWidth()
+				.verticalScroll(rememberScrollState())
+		) {
+			Text("x17 Loky version 0.1")
+			Text("commit: #TODO")
+			Spacer(modifier = Modifier.height(20.dp))
+			Text("(C) 2024 Jiri Bobek")
+		}
 	}
 }
 

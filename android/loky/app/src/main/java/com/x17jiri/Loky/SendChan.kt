@@ -15,21 +15,44 @@ data class SendChanState(
 	val sharedSecretTimestamp: Long,
 )
 
-interface SendChanStateStore {
-	suspend fun load(contactID: Long): SendChanState?
-	fun launchSave(contactID: Long, state: SendChanState)
+abstract class SendChanStateStore(
+	private val contacts: ContactsStore,
+	private val states: MutableMap<Long, PersistentValue<SendChanState>> = mutableMapOf(),
+) {
+	abstract suspend fun load(contactID: Long): SendChanState
+
+	abstract fun launchSave(contactID: Long, state: SendChanState)
+
+	private val mutex = Mutex()
+
+	val flow by lazy {
+		contacts.flow.map { newContactList ->
+			mutex.withLock {
+				newContactList
+					.filter { contact -> contact.send }
+					.map { contact ->
+						val contactID = contact.id
+						val state = states.getOrPut(contactID) {
+							val initState = load(contactID)
+							PersistentValue(initState, { newState -> launchSave(contactID, newState) })
+						}
+						SendChan(MY_SIGNING_KEYS, contact.publicSigningKey, state)
+					}
+			}
+		}
+	}
 }
 
 class SendChanStateStoreMock(
-	val states: MutableMap<Long, SendChanState> = mutableMapOf<Long, SendChanState>()
+	contacts: ContactsStore,
+	states: MutableMap<Long, PersistentValue<SendChanState>> = mutableMapOf(),
 ): SendChanStateStore {
-
-	override suspend fun load(contactID: Long): SendChanState? {
-		return states[contactID]
+	override suspend fun load(contactID: Long): SendChanState {
+		return SendChanState(null, null, null, 0)
 	}
 
 	override fun launchSave(contactID: Long, state: SendChanState) {
-		states[contactID] = state
+		// Do nothing
 	}
 }
 
@@ -59,17 +82,17 @@ class SendChanStateDBStore(
 	val dao: SendChanStateDao,
 	val coroutineScope: CoroutineScope,
 ): SendChanStateStore {
-
-	override suspend fun load(contactID: Long): SendChanState? {
-		val dbEntity = dao.load(contactID) ?: return null
+	override suspend fun load(contactID: Long): SendChanState {
+		val dbEntity = dao.load(contactID)
 
 		val myPublicKey = PublicDHKey.fromString(dbEntity.myPublicKey).getOrNull()
 		val myPrivateKey = PrivateDHKey.fromString(dbEntity.myPrivateKey).getOrNull()
-		val myKeys = if (myPublicKey != null && myPrivateKey != null) {
-			DHKeyPair(myPublicKey, myPrivateKey)
-		} else {
-			null
-		}
+		val myKeys =
+			if (myPublicKey != null && myPrivateKey != null) {
+				DHKeyPair(myPublicKey, myPrivateKey)
+			} else {
+				null
+			}
 
 		val theirPublicKey = PublicDHKey.fromString(dbEntity.theirPublicKey).getOrNull()
 		val sharedSecret = SecretKey.fromString(dbEntity.sharedSecret).getOrNull()
@@ -83,33 +106,28 @@ class SendChanStateDBStore(
 	}
 
 	override fun launchSave(contactID: Long, state: SendChanState) {
-		val myPublicKey = state.myKeys?.public?.toString() ?: ""
-		val myPrivateKey = state.myKeys?.private?.toString() ?: ""
-		val theirPublicKey = state.theirPublicKey?.toString() ?: ""
-		val sharedSecret = state.sharedSecret?.toString() ?: ""
-
-		val dbEntity = SendChanStateDBEntity(
-			contactID,
-			myPublicKey,
-			myPrivateKey,
-			theirPublicKey,
-			sharedSecret,
-			state.sharedSecretTimestamp,
-		)
-
 		coroutineScope.launch {
-			dao.save(dbEntity)
+			dao.save(
+				SendChanStateDBEntity(
+					contactID,
+					myPublicKey = state.myKeys?.public?.toString() ?: "",
+					myPrivateKey = state.myKeys?.private?.toString() ?: "",
+					theirPublicKey = state.theirPublicKey?.toString() ?: "",
+					sharedSecret = state.sharedSecret?.toString() ?: "",
+					state.sharedSecretTimestamp,
+				)
+			)
 		}
 	}
 }
 
 class SendChan(
-	val contact_id: Long,
-	val theirSigningKey: PublicSigningKey,
-	val state: StateFlow<SendChanState>,
 	val mySigningKeys: SigningKeyPair,
+	val theirSigningKey: PublicSigningKey,
+	val state: PersistentValue<SendChanState>,
 ) {
-	fun needNewSecret(now: Long): Boolean {
+	fun needNewKeys(now: Long): Boolean {
+		val state = this.state.value
 		return state.sharedSecret == null || now - state.sharedSecretTimestamp > 3600
 	}
 
@@ -122,51 +140,28 @@ class SendChan(
 		}
 	}
 
-	suspend fun updateKey(
+	suspend fun switchKeys(
 		now: Long,
-		theirNewKeyWithSignature: Pair<PublicDHKey, Signature>?,
-		onSendKeys: suspend (
-			myNewPublicKey: PublicDHKey,
-			signiture: Signature,
-			theirNewPublicKey: PublicDHKey
-		) -> Unit,
+		theirNewKey: SignedPublicDHKey?,
+		onSendKeys: suspend (myNewPublicKey: SignedPublicDHKey, theirNewPublicKey: PublicDHKey) -> Unit,
 	) {
-		val haveNewKey =
-			if (theirNewKeyWithSignature != null) {
-				val theirNewKey = theirNewKeyWithSignature.first
-				val signature = theirNewKeyWithSignature.second
-				val ok = Crypto.verifySignature(theirNewKey.encoded, signature, theirSigningKey)
-				// TODO - invalid signature - report to user?
-				ok
-			} else {
-				false
-			}
-		if (haveNewKey) {
-			// we managed to fetch a new key
-			val theirPublicKey = theirNewKeyWithSignature!!.first
-			val myKeys = DHKeyPair.generate()
-			val mySignature = Crypto.sign(myKeys.public.encoded, mySigningKeys.private)
+		// did we fetch a valid new key from the other side?
+		if (theirNewKey != null && theirNewKey.verifySignature(theirSigningKey)) {
+			// yes, we did
+			val myNewKeys = DHKeyPair.generate()
+			onSendKeys(myNewKeys.public.sign(mySigningKeys.private), theirNewKey.key)
 
-			onSendKeys(myKeys.public, mySignature, theirPublicKey)
+			val sharedSecret = Crypto.deriveSharedKey(myNewKeys.private, theirNewKey.key)
 
-			val sharedSecret = SecretKey.deriveFromSecret(
-				Crypto.diffieHellman(myKeys.private, theirPublicKey)
-			)
-			val timestamp = now
-
-			val newState = SendChanState(myKeys, theirPublicKey, sharedSecret, timestamp)
-			this.state = newState
-			this.stateStore.launchSave(contact.id, newState)
+			this.state.value = SendChanState(myNewKeys, theirNewKey, sharedSecret, now)
 		} else {
 			// we couldn't fetch a new key, but will still send a message
 			// so the other side knows what key we are using
 			// TODO - should we report this to user?
-			val theirPublicKey = state.theirPublicKey
-			val myKeys = state.myKeys
-			if (theirPublicKey != null && myKeys != null) {
-				val mySignature = Crypto.sign(myKeys.public.encoded, mySigningKeys.private)
-
-				onSendKeys(myKeys.public, mySignature, theirPublicKey)
+			val theirOldKey = state.theirPublicKey
+			val myOldKeys = state.myKeys
+			if (theirOldKey != null && myOldKeys != null) {
+				onSendKeys(myOldKeys.public.sign(mySigningKeys.private), theirOldKey)
 			} else {
 				// we couldn't reuse the old key because we don't have one
 			}
@@ -175,23 +170,16 @@ class SendChan(
 
 	suspend fun sendMessage(
 		msg: String,
-		onFetchKey: suspend () -> Pair<PublicDHKey, Signature>?,
-		onSendKeys: suspend (
-			myNewPublicKey: PublicDHKey,
-			mySigniture: Signature,
-			theirNewPublicKey: PublicDHKey
-		) -> Unit,
-		onSendMsg: suspend (ByteArray) -> Unit,
+		onFetchKey: suspend () -> SignedPublicDHKey?,
+		onSendKeys: suspend (myNewPublicKey: SignedPublicDHKey, theirNewPublicKey: PublicDHKey) -> Unit,
+		onSendMsg: suspend (encryptedMsg: ByteArray) -> Unit,
 	) {
 		val now = monotonicSeconds()
-		if (needNewSecret(now)) {
+		if (needNewKeys(now)) {
 			val theirNewKey = onFetchKey()
-			updateKey(now, theirNewKey, onSendKeys)
+			switchKeys(now, theirNewKey, onSendKeys)
 		}
-		val encryptedMsg = encrypt(msg)
-		encryptedMsg.onSuccess {
-			onSendMsg(it)
-		}
+		encrypt(msg).onSuccess { onSendMsg(it) }
 	}
 }
 

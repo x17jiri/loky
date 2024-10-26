@@ -9,6 +9,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlin.properties.ReadOnlyProperty
 import kotlin.reflect.KProperty
 
+// These are global variables, but during their initialization,
+// they need a reference to the application context, so we cannot use `Lazy`.
+
 class SingletonBase<T>(
     scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
 	create: (Context, CoroutineScope) -> T

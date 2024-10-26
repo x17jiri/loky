@@ -203,6 +203,11 @@ class PublicDHKey(val key: PublicECKey) {
 
 	val string: String
 		get() = PREFIX + key.string + SUFFIX
+
+	fun sign(privateSigningKey: PrivateSigningKey): SignedPublicDHKey {
+		val signature = Crypto.sign(key.encoded, privateSigningKey)
+		return SignedPublicDHKey(this, signature)
+	}
 }
 
 class PrivateDHKey(val key: PrivateECKey) {
@@ -237,6 +242,12 @@ class DHKeyPair(val public: PublicDHKey, val private: PrivateDHKey) {
 				PrivateDHKey(keyPair.private)
 			)
 		}
+	}
+}
+
+class SignedPublicDHKey(val key: PublicDHKey, val signature: Signature) {
+	fun verifySignature(publicSigningKey: PublicSigningKey): Boolean {
+		return Crypto.verifySignature(key.encoded, signature, publicSigningKey)
 	}
 }
 
@@ -337,6 +348,12 @@ class Crypto {
 			keyAgreement.init(myPrivateKey.key.key)
 			keyAgreement.doPhase(theirPublicKey.key.key, true)
 			return keyAgreement.generateSecret()
+		}
+
+		fun deriveSharedKey(myPrivateKey, theirPublicKey) {
+			return SecretKey.deriveFromSecret(
+				Crypto.diffieHellman(myPrivateKey, theirPublicKey)
+			)
 		}
 
 		fun sign(msg: ByteArray, key: PrivateSigningKey): Signature {

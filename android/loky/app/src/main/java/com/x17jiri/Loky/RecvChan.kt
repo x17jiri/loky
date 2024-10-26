@@ -17,19 +17,18 @@ data class RecvChanState(
 )
 
 abstract class RevChanStateStore(
-	private val states: MutableMap<Long, StoredValue<RecvChanState>> = mutableMapOf()
+	private val contacts: ContactsStore,
+	private val keyStore: KeyStore,
+	private val states: MutableMap<Long, PersistentValue<RecvChanState>> = mutableMapOf(),
 ) {
 	abstract suspend fun load(contactID: Long): RecvChanState
 
-	abstract fun save(contactID: Long, newState: RecvChanState)
+	abstract fun launchSave(contactID: Long, newState: RecvChanState)
 
 	private val mutex = Mutex()
 
-	fun flow(
-		contacts: ContactsStore,
-		keyStore: KeyStore,
-	): Flow<List<RecvChan>> {
-		return contacts.flow().map { newContactList ->
+	val flow by lazy {
+		contacts.flow.map { newContactList ->
 			mutex.withLock {
 				newContactList
 					.filter { contact -> contact.recv }
@@ -37,9 +36,9 @@ abstract class RevChanStateStore(
 						val contactID = contact.id
 						val state = states.getOrPut(contactID) {
 							val initState = load(contactID)
-							StoredValue(initState, { newState -> save(contactID, newState) })
+							PersistentValue(initState, { newState -> launchSave(contactID, newState) })
 						}
-						RecvChan(contactID, contact.publicSigningKey, state, keyStore)
+						RecvChan(keyStore, contact.publicSigningKey, state)
 					}
 			}
 		}
@@ -47,13 +46,14 @@ abstract class RevChanStateStore(
 }
 
 class RecvChanStateStoreMock(
-	states: MutableMap<Long, StoredValue<RecvChanState>> = mutableMapOf()
-): RevChanStateStore(states) {
+	contacts: ContactsStore,
+	states: MutableMap<Long, PersistentValue<RecvChanState>> = mutableMapOf(),
+): RevChanStateStore(contacts, states) {
 	override suspend fun load(contactID: Long): RecvChanState {
 		return RecvChanState(null)
 	}
 
-	override fun save(contactID: Long, newState: RecvChanState) {
+	override fun launchSave(contactID: Long, newState: RecvChanState) {
 		// Do nothing
 	}
 }
@@ -79,14 +79,15 @@ interface RecvChanStateDao {
 class RecvChanStateDBStore(
 	val dao: RecvChanStateDao,
 	val coroutineScope: CoroutineScope,
-): RevChanStateStore() {
+	contacts: ContactsStore,
+): RevChanStateStore(contacts) {
 	override suspend fun load(contactID: Long): RecvChanState {
 		val dbEntity = dao.load(contactID)
 		val sharedSecret = SecretKey.fromString(dbEntity?.sharedSecret ?: "").getOrNull()
 		return RecvChanState(sharedSecret)
 	}
 
-	override fun save(contactID: Long, newState: RecvChanState) {
+	override fun launchSave(contactID: Long, newState: RecvChanState) {
 		coroutineScope.launch {
 			dao.save(
 				RecvChanStateDBEntity(
@@ -99,10 +100,9 @@ class RecvChanStateDBStore(
 }
 
 class RecvChan(
-	val contact_id: Long,
+	val myKeyStore: KeyStore,
 	val theirSigningKey: PublicSigningKey,
-	val state: StoredValue<RecvChanState>,
-	val keyStore: KeyStore,
+	val state: PersistentValue<RecvChanState>,
 ) {
 	fun decrypt(msg: ByteArray): Result<String> {
 		val sharedSecret = state.value.sharedSecret
@@ -119,24 +119,20 @@ class RecvChan(
 		return Result.success(str)
 	}
 
-	fun recvKeys(
-		theirNewPublicKey: PublicDHKey,
-		theirSignature: Signature,
-		myNewPublicKey: PublicDHKey
+	fun switchKeys(
+		theirNewKey: SignedPublicDHKey,
+		myNewPublicKey: PublicDHKey,
 	) {
-		if (!Crypto.verifySignature(theirNewPublicKey.encoded, theirSignature, theirSigningKey)) {
+		if (!theirNewKey.verifySignature(theirSigningKey)) {
 			// TODO - invalid signature - report to user?
 			return
 		}
 
-		// The return could happen if the sender couldn't fetch our key
-		// so they are reusing an old one and it's already been taken from the keyStore
-		val myKeys = keyStore.takeKeyPair(myNewPublicKey) ?: return
+		// The `return` below could happen if the sender couldn't fetch our key
+		// so they are reusing an old one and it's already been taken from the key store
+		val myKeys = myKeyStore.takeKeyPair(myNewPublicKey) ?: return
 
-		val newSharedSecret =
-			SecretKey.deriveFromSecret(
-				Crypto.diffieHellman(myKeys.private, theirNewPublicKey)
-			)
+		val newSharedSecret = Crypto.deriveSharedKey(myKeys.private, theirNewPublicKey)
 
 		this.state.value = RecvChanState(newSharedSecret)
 	}

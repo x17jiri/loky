@@ -36,7 +36,7 @@ data class Contact(
 )
 
 interface ContactsStore {
-	fun flow(): Flow<List<Contact>>
+	val flow: Flow<List<Contact>>
 	fun save(contact: Contact)
 }
 

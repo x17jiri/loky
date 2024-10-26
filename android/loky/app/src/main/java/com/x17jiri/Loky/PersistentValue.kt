@@ -1,8 +1,8 @@
 package com.x17jiri.Loky
 
-class StoredValue<T>(
+class PersistentValue<T>(
     initialValue: T,
-    val storeValue: (T) -> Unit,
+    val save: (T) -> Unit,
 ) {
     var __value = initialValue
 
@@ -10,7 +10,7 @@ class StoredValue<T>(
         get() = __value
         set(newValue) {
             __value = newValue
-            storeValue(newValue)
+            save(newValue)
         }
 }
 

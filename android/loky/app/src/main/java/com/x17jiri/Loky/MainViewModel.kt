@@ -22,8 +22,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 class MainViewModel(val context: Context): ViewModel() {
-	val credMan = context.__credMan
-	val contactsMan = context.__contactsMan
+	val profileStore = context.__profileStore
+	val contactsStore = context.__contactsStore
 	val inboxMan = context.__inboxMan
 	val settings = context.__settings
 	val server = context.__server

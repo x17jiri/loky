@@ -5,8 +5,10 @@ import androidx.room.RoomDatabase
 
 @Database(
 	entities = [
-		Contact::class,
-		Message::class
+		ContactDBEntity::class,
+		Message::class,
+		SendChanStateDBEntity::class,
+		RecvChanStateDBEntity::class,
 	],
 	version = 1
 )

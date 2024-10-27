@@ -350,7 +350,7 @@ class Crypto {
 			return keyAgreement.generateSecret()
 		}
 
-		fun deriveSharedKey(myPrivateKey, theirPublicKey) {
+		fun deriveSharedKey(myPrivateKey: PrivateDHKey, theirPublicKey: PublicDHKey): SecretKey {
 			return SecretKey.deriveFromSecret(
 				Crypto.diffieHellman(myPrivateKey, theirPublicKey)
 			)

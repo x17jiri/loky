@@ -70,8 +70,8 @@ val Context.__sendChanStateStore by SingletonBase { appContext, scope ->
 	SendChanStore(appContext.__database.sendChanStateDao(), scope)
 }
 
-val Context.__credMan by SingletonBase { appContext, scope ->
-	CredentialsManager(appContext.__dataStore, scope)
+val Context.__profileStore by SingletonBase { appContext, scope ->
+	ProfileDataStoreStore(appContext.__dataStore, scope)
 }
 
 val Context.__server by SingletonBase { appContext, scope ->

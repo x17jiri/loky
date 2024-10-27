@@ -6,7 +6,11 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class SendChanState(
 	val myKeys: DHKeyPair?,
@@ -16,6 +20,7 @@ data class SendChanState(
 )
 
 abstract class SendChanStateStore(
+	private val profile: ProfileStore,
 	private val contacts: ContactsStore,
 	private val states: MutableMap<Long, PersistentValue<SendChanState>> = mutableMapOf(),
 ) {
@@ -25,28 +30,36 @@ abstract class SendChanStateStore(
 
 	private val mutex = Mutex()
 
-	val flow by lazy {
-		contacts.flow.map { newContactList ->
+	fun flow(): Flow<List<SendChan>> {
+		return contacts.flow().map { newContactList ->
 			mutex.withLock {
-				newContactList
-					.filter { contact -> contact.send }
-					.map { contact ->
-						val contactID = contact.id
-						val state = states.getOrPut(contactID) {
-							val initState = load(contactID)
-							PersistentValue(initState, { newState -> launchSave(contactID, newState) })
+				val mySigningKeys = profile.signingKeys.value.keyPair
+				if (mySigningKeys != null) {
+					newContactList
+						.filter { contact -> contact.send }
+						.map { contact ->
+							val contactID = contact.id
+							val state = states.getOrPut(contactID) {
+								val initState = load(contactID)
+								PersistentValue(
+									initState,
+									{ newState -> launchSave(contactID, newState) })
+							}
+							SendChan(mySigningKeys, contact.publicSigningKey, state)
 						}
-						SendChan(MY_SIGNING_KEYS, contact.publicSigningKey, state)
-					}
+				} else {
+					emptyList()
+				}
 			}
 		}
 	}
 }
 
 class SendChanStateStoreMock(
+	profile: ProfileStore,
 	contacts: ContactsStore,
 	states: MutableMap<Long, PersistentValue<SendChanState>> = mutableMapOf(),
-): SendChanStateStore {
+): SendChanStateStore(profile, contacts, states) {
 	override suspend fun load(contactID: Long): SendChanState {
 		return SendChanState(null, null, null, 0)
 	}
@@ -72,18 +85,23 @@ data class SendChanStateDBEntity(
 @Dao
 interface SendChanStateDao {
 	@Query("SELECT * FROM SendChanState WHERE contactID = :contactID")
-	fun load(contactID: Long): SendChanStateDBEntity?
+	suspend fun load(contactID: Long): SendChanStateDBEntity?
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
-	fun save(state: SendChanStateDBEntity)
+	suspend fun save(state: SendChanStateDBEntity)
 }
 
 class SendChanStateDBStore(
+	profile: ProfileStore,
+	contacts: ContactsStore,
 	val dao: SendChanStateDao,
 	val coroutineScope: CoroutineScope,
-): SendChanStateStore {
+): SendChanStateStore(profile, contacts) {
 	override suspend fun load(contactID: Long): SendChanState {
 		val dbEntity = dao.load(contactID)
+		if (dbEntity == null) {
+			return SendChanState(null, null, null, 0)
+		}
 
 		val myPublicKey = PublicDHKey.fromString(dbEntity.myPublicKey).getOrNull()
 		val myPrivateKey = PrivateDHKey.fromString(dbEntity.myPrivateKey).getOrNull()
@@ -132,6 +150,7 @@ class SendChan(
 	}
 
 	fun encrypt(msg: String): Result<ByteArray> {
+		val state = this.state.value
 		val sharedSecret = state.sharedSecret
 		if (sharedSecret == null) {
 			return Result.failure(Exception("No shared secret"))
@@ -153,11 +172,12 @@ class SendChan(
 
 			val sharedSecret = Crypto.deriveSharedKey(myNewKeys.private, theirNewKey.key)
 
-			this.state.value = SendChanState(myNewKeys, theirNewKey, sharedSecret, now)
+			this.state.value = SendChanState(myNewKeys, theirNewKey.key, sharedSecret, now)
 		} else {
 			// we couldn't fetch a new key, but will still send a message
 			// so the other side knows what key we are using
 			// TODO - should we report this to user?
+			val state = this.state.value
 			val theirOldKey = state.theirPublicKey
 			val myOldKeys = state.myKeys
 			if (theirOldKey != null && myOldKeys != null) {

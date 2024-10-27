@@ -15,6 +15,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,23 +37,56 @@ data class Contact(
 )
 
 interface ContactsStore {
-	val flow: Flow<List<Contact>>
-	fun save(contact: Contact)
+	fun flow(): Flow<List<Contact>>
+
+	suspend fun setSend(contact: Contact, send: Boolean)
+	suspend fun setRecv(contact: Contact, recv: Boolean)
+	suspend fun updateSigningKey(contact: Contact, newSigningKey: PublicSigningKey)
+	suspend fun insert(contact: Contact)
+	suspend fun delete(contact: Contact)
+
+	fun launchEdit(block: suspend (ContactsStore) -> Unit)
 }
 
 class ContactsStoreMock(
-	val contacts: MutableMap<Long, Contact> = mutableMapOf<Long, Contact>()
+	val contacts: MutableMap<Long, Contact> = mutableMapOf<Long, Contact>(),
+	val coroutineScope: CoroutineScope = GlobalScope,
 ): ContactsStore {
-
 	val __flow = MutableStateFlow(contacts.values.toList())
 
 	override fun flow(): Flow<List<Contact>> {
 		return __flow
 	}
 
-	override fun save(contact: Contact) {
+	override suspend fun setSend(contact: Contact, send: Boolean) {
+		contacts[contact.id] = contact.copy(send = send)
+		__flow.update { contacts.values.toList() }
+	}
+
+	override suspend fun setRecv(contact: Contact, recv: Boolean) {
+		contacts[contact.id] = contact.copy(recv = recv)
+		__flow.update { contacts.values.toList() }
+	}
+
+	override suspend fun updateSigningKey(contact: Contact, newSigningKey: PublicSigningKey) {
+		contacts[contact.id] = contact.copy(publicSigningKey = newSigningKey)
+		__flow.update { contacts.values.toList() }
+	}
+
+	override suspend fun insert(contact: Contact) {
 		contacts[contact.id] = contact
-		__flow.value = contacts.values.toList()
+		__flow.update { contacts.values.toList() }
+	}
+
+	override suspend fun delete(contact: Contact) {
+		contacts.remove(contact.id)
+		__flow.update { contacts.values.toList() }
+	}
+
+	override fun launchEdit(block: suspend (ContactsStore) -> Unit) {
+		coroutineScope.launch {
+			block(this@ContactsStoreMock)
+		}
 	}
 }
 
@@ -86,19 +120,19 @@ class ContactDBEntity(
 @Dao
 interface ContactDao {
 	@Query("UPDATE contacts SET send = :send WHERE id = :id")
-	fun setSend(id: Long, send: Boolean)
+	suspend fun setSend(id: Long, send: Boolean): Int
 
 	@Query("UPDATE contacts SET recv = :recv WHERE id = :id")
-	fun setRecv(id: Long, recv: Boolean)
+	suspend fun setRecv(id: Long, recv: Boolean)
 
 	@Query("UPDATE contacts SET publicSigningKey = :newSigningKey WHERE id = :contactId")
-	fun updateSigningKey(contactId: Long, newSigningKey: String)
+	suspend fun updateSigningKey(contactId: Long, newSigningKey: String)
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
-	fun insertAll(vararg contacts: ContactDBEntity)
+	suspend fun insertAll(vararg contacts: ContactDBEntity)
 
 	@Query("DELETE FROM contacts WHERE id = :id")
-	fun delete(id: Long)
+	suspend fun delete(id: Long)
 
 	@Query("SELECT * FROM contacts")
 	fun flow(): Flow<List<ContactDBEntity>>
@@ -108,31 +142,46 @@ class ContactsDBStore(
 	val dao: ContactDao,
 	val coroutineScope: CoroutineScope,
 ): ContactsStore {
-	val mutex = Mutex()
-
 	override fun flow(): Flow<List<Contact>> {
 		return dao.flow().map { dbEntities ->
 			dbEntities.mapNotNull { dbEntity -> dbEntity.toContact() }
 		}
 	}
 
-    fun launchEdit(block: suspend (ContactDao) -> Unit) {
+	override suspend fun setSend(contact: Contact, send: Boolean) {
+		dao.setSend(contact.id, send)
+	}
+
+	override suspend fun setRecv(contact: Contact, recv: Boolean) {
+		dao.setRecv(contact.id, recv)
+	}
+
+	override suspend fun updateSigningKey(contact: Contact, newSigningKey: PublicSigningKey) {
+		dao.updateSigningKey(contact.id, newSigningKey.toString())
+	}
+
+	override suspend fun insert(contact: Contact) {
+		val dbEntity = ContactDBEntity(
+			id = contact.id,
+			name = contact.name,
+			send = contact.send,
+			recv = contact.recv,
+			publicSigningKey = contact.publicSigningKey.toString()
+		)
+		dao.insertAll(dbEntity)
+	}
+
+	override suspend fun delete(contact: Contact) {
+		dao.delete(contact.id)
+	}
+
+	private val mutex = Mutex()
+
+    override fun launchEdit(block: suspend (ContactsStore) -> Unit) {
 		coroutineScope.launch {
 			mutex.withLock {
-				block(dao)
+				block(this@ContactsDBStore)
 			}
 		}
     }
-
-	override fun save(contact: Contact) {
-		launchEdit { dao ->
-			dao.insertAll(ContactDBEntity(
-				id = contact.id,
-				name = contact.name,
-				send = contact.send,
-				recv = contact.recv,
-				publicSigningKey = contact.publicSigningKey.toString(),
-			))
-		}
-	}
 }

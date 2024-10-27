@@ -175,7 +175,7 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 		Text("Loading...", fontSize = 24.sp)
 		LaunchedEffect(Unit) {
 			model.inboxMan.launchCleanUp()
-			val cred = model.credMan.cred.value
+			val cred = model.profileStore.cred.value
 			if (cred.user.isNotEmpty() && cred.passwd.isNotEmpty()) {
 				scope.launch(Dispatchers.IO) {
 					model.server.login().fold(
@@ -207,7 +207,7 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 
 @Composable
 fun LoginScreen(navController: NavController, model: MainViewModel, scope: CoroutineScope, message: String) {
-	val cred by model.credMan.cred.collectAsState()
+	val cred by model.profileStore.cred.collectAsState()
 	var failedDialog by remember { mutableStateOf(message) }
 	Column(
 		modifier = Modifier.fillMaxSize(),
@@ -222,7 +222,7 @@ fun LoginScreen(navController: NavController, model: MainViewModel, scope: Corou
 				value = cred.user,
 				onValueChange = { newName ->
 					runBlocking {
-						model.credMan.updateCred { cred -> cred.copy(user = newName) }
+						model.profileStore.updateCred { cred -> cred.copy(user = newName) }
 					}
 				},
 				label = { Text("Username") },
@@ -234,7 +234,7 @@ fun LoginScreen(navController: NavController, model: MainViewModel, scope: Corou
 				value = cred.passwd,
 				onValueChange = { newPasswd ->
 					runBlocking {
-						model.credMan.updateCred { cred -> cred.copy(passwd = newPasswd) }
+						model.profileStore.updateCred { cred -> cred.copy(passwd = newPasswd) }
 					}
 				},
 				label = { Text("Password") },
@@ -333,7 +333,7 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 					.weight(1.0f)
 					.fillMaxWidth()
 			) {
-				val contactsFlow = model.contactsMan.flow().map { list ->
+				val contactsFlow = model.contactsStore.flow().map { list ->
 					list.filter { contact -> contact.recv }
 				}
 				val contacts by contactsFlow.collectAsState(emptyList())
@@ -557,18 +557,15 @@ enum class AddContactState {
 @Composable
 fun Contacts(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
 	ScreenHeader("Contacts", navController) {
-		val contacts by model.contactsMan.flow().collectAsState(emptyList())
-		var itemToDel by remember { mutableStateOf<Long?>(null) }
+		val contacts by model.contactsStore.flow().collectAsState(emptyList())
+		var itemToDel by remember { mutableStateOf<Contact?>(null) }
 		var addContactState by remember { mutableStateOf(AddContactState.Hidden) }
 		Box(modifier = Modifier.fillMaxSize()) {
 			LazyColumn(
 				modifier = Modifier.fillMaxWidth()
 			) {
 				items(contacts.size) { __i ->
-					val id = contacts[__i].id
-					val name = contacts[__i].name
-					val send = contacts[__i].send
-					val recv = contacts[__i].recv
+					val contact = contacts[__i]
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
 						modifier = Modifier
@@ -584,10 +581,10 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 								style = TextStyle(fontSize = 8.sp)
 							)
 							Switch(
-								checked = send,
+								checked = contact.send,
 								onCheckedChange = { value ->
-									model.contactsMan.launchEdit { contactDao ->
-										contactDao.setSend(id, value)
+									model.contactsStore.launchEdit { store ->
+										store.setSend(contact, value)
 									}
 								},
 								colors = SwitchDefaults.colors(
@@ -604,10 +601,10 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 								style = TextStyle(fontSize = 8.sp)
 							)
 							Switch(
-								checked = recv,
+								checked = contact.recv,
 								onCheckedChange = { value ->
-									model.contactsMan.launchEdit { contactDao ->
-										contactDao.setRecv(id, value)
+									model.contactsStore.launchEdit { store ->
+										store.setRecv(contact, value)
 									}
 								},
 								colors = SwitchDefaults.colors(
@@ -621,11 +618,11 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 							contentAlignment = Alignment.CenterStart,
 							modifier = Modifier.weight(1.0f)
 						) {
-							Text(text = name)
+							Text(text = contact.name)
 						}
 						Spacer(modifier = Modifier.width(20.dp))
 						IconButton(
-							onClick = { itemToDel = id }
+							onClick = { itemToDel = contact }
 						) {
 							Icon(
 								Icons.Filled.Delete,
@@ -647,43 +644,35 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 					contentDescription = "Add"
 				)
 			}
-			if (itemToDel != null) {
-				val item = contacts.find { it.id == itemToDel }
-				if (item == null) {
-					itemToDel = null
-				} else {
-					val id: Long = item.id
-					ConfirmDialog(
-						"Delete ${item.name}?",
-						onDismiss = { itemToDel = null; },
-						onConfirm = {
-							model.contactsMan.launchEdit { contactDao ->
-								contactDao.delete(id)
-							}
+			val __itemToDel = itemToDel
+			if (__itemToDel != null) {
+				ConfirmDialog(
+					"Delete ${__itemToDel.name}?",
+					onDismiss = { itemToDel = null; },
+					onConfirm = {
+						model.contactsStore.launchEdit { store ->
+							store.delete(__itemToDel)
 						}
-					)
-				}
+					}
+				)
 			}
 			when (addContactState) {
 				AddContactState.TextInput -> {
 					AddContactDialog(
 						onDismiss = { addContactState = AddContactState.Hidden },
-						onConfirm = {
-							val userName = it
+						onConfirm = { userName ->
 							addContactState = AddContactState.Checking
 							scope.launch(Dispatchers.IO) {
-								model.server.userInfo(it).fold(
-									onSuccess = {
-										val id = it
-										model.contactsMan.launchEdit { contactDao ->
-											contactDao.insertAll(
+								model.server.userInfo(userName).fold(
+									onSuccess = { userInfo ->
+										model.contactsStore.launchEdit { store ->
+											store.insert(
 												Contact(
-													id = id,
+													id = userInfo.id,
 													name = userName,
+													publicSigningKey = userInfo.publicSigningKey,
 													send = false,
-													recv = false,
-													publicKey = "",
-													keyHash = "",
+													recv = true,
 												)
 											)
 										}

@@ -49,6 +49,11 @@ import java.time.Instant
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
+data class UserInfo(
+	val id: Long,
+	val publicSigningKey: PublicSigningKey,
+)
+
 class ServerInterface(
 	context: Context,
 	val coroutineScope: CoroutineScope,
@@ -203,7 +208,7 @@ class ServerInterface(
 		}
 	}
 
-	suspend fun userInfo(userName: String): Result<Long> {
+	suspend fun userInfo(userName: String): Result<UserInfo> {
 		return withContext(Dispatchers.IO) {
 			data class UserInfoRequest(
 				val name: String,
@@ -211,13 +216,18 @@ class ServerInterface(
 
 			data class UserInfoResponse(
 				val id: Long,
+				val publicSigningKey: String,
 			)
 
 			restAPI<UserInfoRequest, UserInfoResponse>(
 				"https://$server/api/userInfo",
 				UserInfoRequest(userName)
 			).mapCatching {
-				it.id
+				val publicSigningKey = PublicSigningKey.fromString(it.publicSigningKey).getOrNull()
+				if (publicSigningKey == null) {
+					throw Exception("Invalid public signing key")
+				}
+				UserInfo(it.id, publicSigningKey)
 			}
 		}
 	}

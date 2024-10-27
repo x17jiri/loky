@@ -102,7 +102,7 @@ class LocationService: Service() {
 		serviceScope = CoroutineScope(Dispatchers.IO)
 		server = this.__server
 
-		val contactFlow = this.__contactsMan.flow().map { list ->
+		val contactFlow = this.__contactsStore.flow().map { list ->
 			list.filter { contact -> contact.send }
 		}
 		contacts = contactFlow.stateIn(serviceScope, SharingStarted.Eagerly, emptyList())

@@ -62,12 +62,26 @@ val Context.__contactsStore by SingletonBase { appContext, scope ->
 	ContactsDBStore(appContext.__database.contactDao(), scope)
 }
 
+val Context.__preKeyStore by SingletonBase { appContext, scope ->
+	PreKeyDBStore(appContext.__database.preKeyDao(), scope)
+}
+
 val Context.__recvChanStateStore by SingletonBase { appContext, scope ->
-	RecvChanStore(appContext.__database.recvChanStateDao(), scope)
+	RecvChanStateDBStore(
+		appContext.__contactsStore,
+		appContext.__preKeyStore,
+		appContext.__database.recvChanStateDao(),
+		scope,
+	)
 }
 
 val Context.__sendChanStateStore by SingletonBase { appContext, scope ->
-	SendChanStore(appContext.__database.sendChanStateDao(), scope)
+	SendChanStateDBStore(
+		appContext.__profileStore,
+		appContext.__contactsStore,
+		appContext.__database.sendChanStateDao(),
+		scope,
+	)
 }
 
 val Context.__profileStore by SingletonBase { appContext, scope ->

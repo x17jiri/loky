@@ -31,12 +31,10 @@ data class TmpCredentials(
 	val token: String = "",
 )
 
-class SigningKeys(
+data class SigningKeys(
 	val keyPair: SigningKeyPair? = null,
 	val keyOwner: String = "",
-) {
-	fun areValid(username: String): Boolean = keyPair != null && keyOwner == username
-}
+)
 
 interface ProfileStore {
 	val cred: StateFlow<Credentials>
@@ -51,7 +49,7 @@ interface ProfileStore {
 class ProfileDataStoreStore(
 	val __dataStore: DataStore<Preferences>,
 	val coroutineScope: CoroutineScope,
-) {
+): ProfileStore {
 	companion object {
 		val __userKey: Preferences.Key<String> = stringPreferencesKey("login.user")
 		val __passwdKey: Preferences.Key<String> = stringPreferencesKey("login.passwd")
@@ -73,7 +71,7 @@ class ProfileDataStoreStore(
 
 	fun credFlow(): Flow<Credentials> = __dataStore.data.map { data -> extractCred(data) }
 
-	val cred by lazy {
+	override val cred by lazy {
 		credFlow().stateIn(coroutineScope, SharingStarted.Eagerly, Credentials())
 	}
 
@@ -86,11 +84,11 @@ class ProfileDataStoreStore(
 
 	fun tmpCredFlow(): Flow<TmpCredentials> = __dataStore.data.map { data -> extractTmpCred(data) }
 
-	val tmpCred by lazy {
+	override val tmpCred by lazy {
 		tmpCredFlow().stateIn(coroutineScope, SharingStarted.Eagerly, TmpCredentials())
 	}
 
-	fun extractKeys(p: Preferences): SigningKeys {
+	fun extractSigningKeys(p: Preferences): SigningKeys {
 		val publicKey = PublicSigningKey.fromString(p[__publicKeyKey] ?: "").getOrNull()
 		val privateKey = PrivateSigningKey.fromString(p[__privateKeyKey] ?: "").getOrNull()
 		val owner = p[__keyOwnerKey] ?: ""
@@ -104,13 +102,13 @@ class ProfileDataStoreStore(
 		}
 	}
 
-	fun keysFlow(): Flow<SigningKeys> = __dataStore.data.map { data -> extractKeys(data) }
+	fun signingKeysFlow(): Flow<SigningKeys> = __dataStore.data.map { data -> extractSigningKeys(data) }
 
-	val keys by lazy {
-		keysFlow().stateIn(coroutineScope, SharingStarted.Eagerly, SigningKeys())
+	override val signingKeys by lazy {
+		signingKeysFlow().stateIn(coroutineScope, SharingStarted.Eagerly, SigningKeys())
 	}
 
-	suspend fun updateCred(func: (Credentials) -> Credentials) {
+	override suspend fun updateCred(func: (Credentials) -> Credentials) {
 		__dataStore.edit { preferences ->
 			val oldCreds = extractCred(preferences)
 			val newCreds = func(oldCreds)
@@ -123,7 +121,7 @@ class ProfileDataStoreStore(
 		}
 	}
 
-	suspend fun updateTmpCred(func: (TmpCredentials) -> TmpCredentials) {
+	override suspend fun updateTmpCred(func: (TmpCredentials) -> TmpCredentials) {
 		__dataStore.edit { preferences ->
 			val oldCreds = extractTmpCred(preferences)
 			val newCreds = func(oldCreds)
@@ -137,9 +135,9 @@ class ProfileDataStoreStore(
 		}
 	}
 
-	suspend fun updateKeys(func: (SigningKeys) -> SigningKeys) {
+	override suspend fun updateKeys(func: (SigningKeys) -> SigningKeys) {
 		__dataStore.edit { preferences ->
-			val oldKeys = extractKeys(preferences)
+			val oldKeys = extractSigningKeys(preferences)
 			val newKeys = func(oldKeys)
 			if (newKeys.keyPair != null && newKeys.keyOwner != "") {
 				if (newKeys.keyPair != oldKeys.keyPair) {

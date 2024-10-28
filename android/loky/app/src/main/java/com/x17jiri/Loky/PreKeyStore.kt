@@ -14,11 +14,12 @@ import kotlinx.coroutines.sync.withLock
 interface PreKeyStore {
 	suspend fun takeKeyPair(publicKey: PublicDHKey): DHKeyPair?
 
+	// The new keys are stored in the store only if sendToServer returns success
 	suspend fun generate(sendToServer: suspend (List<PublicDHKey>) -> Result<Unit>)
 
 	suspend fun markUsed(keys: List<PublicDHKey>)
 
-	suspend fun delExpired(expirationDays: Long = 30)
+	suspend fun delExpired()
 
 	fun launchEdit(block: suspend (PreKeyStore) -> Unit)
 }
@@ -42,7 +43,7 @@ class PreKeyStoreMock(
 
 	override suspend fun markUsed(keys: List<PublicDHKey>) {}
 
-	override suspend fun delExpired(expirationDays: Long) {}
+	override suspend fun delExpired() {}
 
 	override fun launchEdit(block: suspend (PreKeyStore) -> Unit) {
 		coroutineScope.launch {
@@ -55,7 +56,7 @@ class PreKeyStoreMock(
 	tableName = "PreKeyStore",
 	primaryKeys = ["publicKey"],
 )
-data class PreKeyPairDBEntity(
+data class PreKeyDBEntity(
 	val publicKey: String,
 	val privateKey: String,
 	val used: Boolean,
@@ -63,9 +64,9 @@ data class PreKeyPairDBEntity(
 )
 
 @Dao
-interface PreKeyPairDao {
+interface PreKeyDao {
 	@Query("SELECT * FROM PreKeyStore")
-	suspend fun loadAll(): List<PreKeyPairDBEntity>
+	suspend fun loadAll(): List<PreKeyDBEntity>
 
 	@Query("DELETE FROM PreKeyStore WHERE used = 1 AND usedTime < :validFrom")
 	suspend fun delExpired(validFrom: Long): Int
@@ -74,7 +75,7 @@ interface PreKeyPairDao {
 	suspend fun markUsed(publicKeys: List<String>, usedTime: Long): Unit
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
-	suspend fun insert(what: List<PreKeyPairDBEntity>): Unit
+	suspend fun insert(what: List<PreKeyDBEntity>): Unit
 
 	@Query("DELETE FROM PreKeyStore WHERE publicKey = :publicKey")
 	suspend fun delete(publicKey: String): Unit
@@ -83,17 +84,17 @@ interface PreKeyPairDao {
 	suspend fun delete(publicKeys: List<String>): Unit
 }
 
-data class PreKeyPair(
+data class PreKey(
 	val keyPair: DHKeyPair,
 	val used: Boolean = false,
 	val usedTime: Long = 0,
 )
 
 class PreKeyDBStore(
-	val dao: PreKeyPairDao,
+	val dao: PreKeyDao,
 	val coroutineScope: CoroutineScope,
 ): PreKeyStore {
-	private val keys = mutableMapOf<String, PreKeyPair>()
+	private val keys = mutableMapOf<String, PreKey>()
 	private val keysMutex = Mutex()
 
 	suspend fun init() {
@@ -103,7 +104,7 @@ class PreKeyDBStore(
 				val publicKey = PublicDHKey.fromString(entity.publicKey).getOrNull()
 				val privateKey = PrivateDHKey.fromString(entity.privateKey).getOrNull()
 				if (publicKey != null && privateKey != null) {
-					keys[entity.publicKey] = PreKeyPair(
+					keys[entity.publicKey] = PreKey(
 						DHKeyPair(publicKey, privateKey),
 						entity.used,
 						entity.usedTime,
@@ -125,14 +126,14 @@ class PreKeyDBStore(
 	}
 
 	override suspend fun generate(sendToServer: suspend (List<PublicDHKey>) -> Result<Unit>) {
-		val newPairs = (0 until 10).map { PreKeyPair(DHKeyPair.generate()) }
+		val newPairs = (0 until 10).map { PreKey(DHKeyPair.generate()) }
 		val newList = newPairs.map { it.keyPair.public }
 		val newMap = newPairs.associateBy { it.keyPair.public.toString() }
 		sendToServer(newList).onSuccess {
 			keysMutex.withLock { keys.putAll(newMap) }
 
 			val dbEntities = newPairs.map { data ->
-				PreKeyPairDBEntity(
+				PreKeyDBEntity(
 					data.keyPair.public.toString(),
 					data.keyPair.private.toString(),
 					data.used,
@@ -162,9 +163,9 @@ class PreKeyDBStore(
 		}
 	}
 
-	override suspend fun delExpired(expirationDays: Long) {
+	override suspend fun delExpired() {
 		val now = monotonicSeconds()
-		val validFrom = now - expirationDays * 86400
+		val validFrom = now - KEY_EXPIRE.inWholeSeconds
 		keysMutex.withLock {
 			keys.entries.removeIf { (_, data) ->
 				data.used && data.usedTime < validFrom

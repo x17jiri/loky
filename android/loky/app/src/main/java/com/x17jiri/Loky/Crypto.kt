@@ -42,6 +42,10 @@ class PublicECKey(val key: PublicKey) {
 		}
 	}
 
+	fun toString(): String {
+		return string
+	}
+
 	val encoded: ByteArray
 		get() = key.encoded
 
@@ -74,6 +78,10 @@ class PrivateECKey(val key: PrivateKey) {
 				return Result.failure(e)
 			}
 		}
+	}
+
+	fun toString(): String {
+		return string
 	}
 
 	val encoded: ByteArray
@@ -119,6 +127,10 @@ class Signature(val encoded: ByteArray) {
 		}
 	}
 
+	fun toString(): String {
+		return string
+	}
+
 	@OptIn(ExperimentalEncodingApi::class)
 	val string: String
 		get() = PREFIX + Base64.encode(encoded) + SUFFIX
@@ -138,6 +150,10 @@ class PublicSigningKey(val key: PublicECKey) {
 			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
 			return PublicECKey.fromString(k).map { PublicSigningKey(it) }
 		}
+	}
+
+	fun toString(): String {
+		return string
 	}
 
 	val encoded: ByteArray
@@ -161,6 +177,10 @@ class PrivateSigningKey(val key: PrivateECKey) {
 			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
 			return PrivateECKey.fromString(k).map { PrivateSigningKey(it) }
 		}
+	}
+
+	fun toString(): String {
+		return string
 	}
 
 	val encoded: ByteArray
@@ -198,13 +218,17 @@ class PublicDHKey(val key: PublicECKey) {
 		}
 	}
 
+	fun toString(): String {
+		return string
+	}
+
 	val encoded: ByteArray
 		get() = key.encoded
 
 	val string: String
 		get() = PREFIX + key.string + SUFFIX
 
-	fun sign(privateSigningKey: PrivateSigningKey): SignedPublicDHKey {
+	fun signBy(privateSigningKey: PrivateSigningKey): SignedPublicDHKey {
 		val signature = Crypto.sign(key.encoded, privateSigningKey)
 		return SignedPublicDHKey(this, signature)
 	}
@@ -224,6 +248,10 @@ class PrivateDHKey(val key: PrivateECKey) {
 			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
 			return PrivateECKey.fromString(k).map { PrivateDHKey(it) }
 		}
+	}
+
+	fun toString(): String {
+		return string
 	}
 
 	val encoded: ByteArray
@@ -286,6 +314,10 @@ class SecretKey(val key: javax.crypto.SecretKey) {
 			val keyBytes = Crypto.hash(secret)
 			return SecretKey(SecretKeySpec(keyBytes, "AES"))
 		}
+	}
+
+	fun toString(): String {
+		return string
 	}
 
 	val encoded: ByteArray

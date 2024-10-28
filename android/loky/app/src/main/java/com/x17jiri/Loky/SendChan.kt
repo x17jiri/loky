@@ -45,7 +45,7 @@ abstract class SendChanStateStore(
 									initState,
 									{ newState -> launchSave(contactID, newState) })
 							}
-							SendChan(mySigningKeys, contact.publicSigningKey, state)
+							SendChan(contactID, mySigningKeys, contact.publicSigningKey, state)
 						}
 				} else {
 					emptyList()
@@ -140,13 +140,17 @@ class SendChanStateDBStore(
 }
 
 class SendChan(
+	val id: Long,
 	val mySigningKeys: SigningKeyPair,
 	val theirSigningKey: PublicSigningKey,
 	val state: PersistentValue<SendChanState>,
 ) {
 	fun needNewKeys(now: Long): Boolean {
 		val state = this.state.value
-		return state.sharedSecret == null || now - state.sharedSecretTimestamp > 3600
+		return (
+			state.sharedSecret == null
+			|| now - state.sharedSecretTimestamp > SWITCH_KEYS_INTERVAL.inWholeSeconds
+		)
 	}
 
 	fun encrypt(msg: String): Result<ByteArray> {

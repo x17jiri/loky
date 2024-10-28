@@ -82,10 +82,10 @@ interface RecvChanStateDao {
 }
 
 class RecvChanStateDBStore(
-	val dao: RecvChanStateDao,
-	val coroutineScope: CoroutineScope,
 	contacts: ContactsStore,
 	keyStore: PreKeyStore,
+	val dao: RecvChanStateDao,
+	val coroutineScope: CoroutineScope,
 ): RevChanStateStore(contacts, keyStore) {
 	override suspend fun load(contactID: Long): RecvChanState {
 		val dbEntity = dao.load(contactID)
@@ -134,8 +134,8 @@ class RecvChan(
 	}
 
 	suspend fun switchKeys(
-		theirNewKey: SignedPublicDHKey,
 		myNewPublicKey: PublicDHKey,
+		theirNewKey: SignedPublicDHKey,
 	) {
 		if (!theirNewKey.verifySignature(theirSigningKey)) {
 			// TODO - invalid signature - report to user?

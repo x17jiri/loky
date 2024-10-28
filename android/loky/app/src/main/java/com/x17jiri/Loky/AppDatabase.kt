@@ -6,6 +6,7 @@ import androidx.room.RoomDatabase
 @Database(
 	entities = [
 		ContactDBEntity::class,
+		PreKeyDBEntity::class,
 		Message::class,
 		SendChanStateDBEntity::class,
 		RecvChanStateDBEntity::class,
@@ -14,6 +15,9 @@ import androidx.room.RoomDatabase
 )
 abstract class AppDatabase: RoomDatabase() {
 	abstract fun contactDao(): ContactDao
+	abstract fun preKeyDao(): PreKeyDao
 	abstract fun messageDao(): MessageDao
+	abstract fun sendChanStateDao(): SendChanStateDao
+	abstract fun recvChanStateDao(): RecvChanStateDao
 }
 

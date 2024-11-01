@@ -29,7 +29,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 data class Contact(
-	val id: Long,
+	val id: String,
 	val name: String,
 	val send: Boolean,
 	val recv: Boolean,
@@ -49,10 +49,11 @@ interface ContactsStore {
 }
 
 class ContactsStoreMock(
-	val contacts: MutableMap<Long, Contact> = mutableMapOf<Long, Contact>(),
+	val contacts: MutableMap<String, Contact> = mutableMapOf<String, Contact>(),
 	val coroutineScope: CoroutineScope = GlobalScope,
 ): ContactsStore {
 	val __flow = MutableStateFlow(contacts.values.toList())
+	val __mutex = Mutex()
 
 	override fun flow(): Flow<List<Contact>> {
 		return __flow
@@ -85,7 +86,9 @@ class ContactsStoreMock(
 
 	override fun launchEdit(block: suspend (ContactsStore) -> Unit) {
 		coroutineScope.launch {
-			block(this@ContactsStoreMock)
+			__mutex.withLock {
+				block(this@ContactsStoreMock)
+			}
 		}
 	}
 }
@@ -95,7 +98,7 @@ class ContactsStoreMock(
 	primaryKeys = ["id"],
 )
 class ContactDBEntity(
-	val id: Long,
+	val id: String,
 	val name: String,
 	val send: Boolean,
 	val recv: Boolean,
@@ -120,19 +123,19 @@ class ContactDBEntity(
 @Dao
 interface ContactDao {
 	@Query("UPDATE contacts SET send = :send WHERE id = :id")
-	suspend fun setSend(id: Long, send: Boolean): Int
+	suspend fun setSend(id: String, send: Boolean): Int
 
 	@Query("UPDATE contacts SET recv = :recv WHERE id = :id")
-	suspend fun setRecv(id: Long, recv: Boolean)
+	suspend fun setRecv(id: String, recv: Boolean)
 
-	@Query("UPDATE contacts SET publicSigningKey = :newSigningKey WHERE id = :contactId")
-	suspend fun updateSigningKey(contactId: Long, newSigningKey: String)
+	@Query("UPDATE contacts SET publicSigningKey = :newKey WHERE id = :id")
+	suspend fun updateSigningKey(id: String, newKey: String)
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun insertAll(vararg contacts: ContactDBEntity)
 
 	@Query("DELETE FROM contacts WHERE id = :id")
-	suspend fun delete(id: Long)
+	suspend fun delete(id: String)
 
 	@Query("SELECT * FROM contacts")
 	fun flow(): Flow<List<ContactDBEntity>>
@@ -166,7 +169,7 @@ class ContactsDBStore(
 			name = contact.name,
 			send = contact.send,
 			recv = contact.recv,
-			publicSigningKey = contact.publicSigningKey.toString()
+			publicSigningKey = contact.publicSigningKey.toString(),
 		)
 		dao.insertAll(dbEntity)
 	}

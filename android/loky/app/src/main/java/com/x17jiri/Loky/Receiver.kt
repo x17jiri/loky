@@ -29,7 +29,7 @@ import java.time.Instant
 	primaryKeys = ["from", "timestamp"],
 )
 data class Message(
-	val from: Long,
+	val from: String,
 	val timestamp: Long,
 	val lat: Double,
 	val lon: Double,
@@ -90,7 +90,7 @@ class Receiver(
 		inboxMan.flow().map { messages ->
 			val now = monotonicSeconds()
 			val cutoff = now - 7200
-			val newData: HashMap<Long, MutableList<Message>> = HashMap()
+			val newData: HashMap<String, MutableList<Message>> = HashMap()
 
 			for (msg in messages) {
 				if (msg.timestamp > cutoff && msg.timestamp <= now) {

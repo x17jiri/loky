@@ -16,19 +16,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayInputStream
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
 data class Credentials(
-	val user: String = "",
+	val username: String = "",
 	val passwd: String = "",
-)
-
-data class TmpCredentials(
-	val id: Long = 0,
-	val token: String = "",
 )
 
 data class SigningKeys(
@@ -38,12 +30,18 @@ data class SigningKeys(
 
 interface ProfileStore {
 	val cred: StateFlow<Credentials>
-	val tmpCred: StateFlow<TmpCredentials>
+	val bearer: StateFlow<String>
 	val signingKeys: StateFlow<SigningKeys>
 
-	suspend fun updateCred(func: (Credentials) -> Credentials)
-	suspend fun updateTmpCred(func: (TmpCredentials) -> TmpCredentials)
-	suspend fun updateKeys(func: (SigningKeys) -> SigningKeys)
+	suspend fun setCred(cred: Credentials)
+	suspend fun setBearer(bearer: String)
+	suspend fun setSigningKeys(newKeys: SigningKeys)
+
+	suspend fun setSigningKeys(keyPair: SigningKeyPair, owner: String) {
+		setSigningKeys(SigningKeys(keyPair, owner))
+	}
+
+	fun launchEdit(block: suspend (ProfileStore) -> Unit)
 }
 
 class ProfileDataStoreStore(
@@ -51,20 +49,21 @@ class ProfileDataStoreStore(
 	val coroutineScope: CoroutineScope,
 ): ProfileStore {
 	companion object {
-		val __userKey: Preferences.Key<String> = stringPreferencesKey("login.user")
+		val __usernameKey: Preferences.Key<String> = stringPreferencesKey("login.username")
 		val __passwdKey: Preferences.Key<String> = stringPreferencesKey("login.passwd")
 
-		val __idKey: Preferences.Key<String> = stringPreferencesKey("login.id")
-		val __tokenKey: Preferences.Key<String> = stringPreferencesKey("login.token")
+		val __bearerKey: Preferences.Key<String> = stringPreferencesKey("login.bearer")
 
 		val __publicKeyKey = stringPreferencesKey("key.public")
 		val __privateKeyKey = stringPreferencesKey("key.private")
 		val __keyOwnerKey = stringPreferencesKey("key.owner")
 	}
 
+	//-- cred: Credentials
+
 	fun extractCred(p: Preferences): Credentials {
 		return Credentials(
-			user = p[__userKey] ?: "",
+			username = p[__usernameKey] ?: "",
 			passwd = p[__passwdKey] ?: "",
 		)
 	}
@@ -75,18 +74,41 @@ class ProfileDataStoreStore(
 		credFlow().stateIn(coroutineScope, SharingStarted.Eagerly, Credentials())
 	}
 
-	fun extractTmpCred(p: Preferences): TmpCredentials {
-		return TmpCredentials(
-			id = p[__idKey]?.toLongOrNull() ?: 0,
-			token = p[__tokenKey] ?: "",
-		)
+	override suspend fun setCred(cred: Credentials) {
+		__dataStore.edit { preferences ->
+			val oldCreds = extractCred(preferences)
+			if (cred.username != oldCreds.username) {
+				preferences[__usernameKey] = cred.username
+			}
+			if (cred.passwd != oldCreds.passwd) {
+				preferences[__passwdKey] = cred.passwd
+			}
+		}
 	}
 
-	fun tmpCredFlow(): Flow<TmpCredentials> = __dataStore.data.map { data -> extractTmpCred(data) }
+	//-- bearer: String
 
-	override val tmpCred by lazy {
-		tmpCredFlow().stateIn(coroutineScope, SharingStarted.Eagerly, TmpCredentials())
+	fun extractBearer(p: Preferences): String {
+		return p[__bearerKey] ?: ""
 	}
+
+	fun bearerFlow(): Flow<String> = __dataStore.data.map { data -> extractBearer(data) }
+
+	override val bearer by lazy {
+		bearerFlow().stateIn(coroutineScope, SharingStarted.Eagerly, "")
+	}
+
+	override suspend fun setBearer(bearer: String) {
+		__dataStore.edit { preferences ->
+			val oldBearer = extractBearer(preferences)
+			Log.d("Locodile", "setBearer: $bearer")
+			if (bearer != oldBearer) {
+				preferences[__bearerKey] = bearer
+			}
+		}
+	}
+
+	//-- signingKeys: SigningKeys
 
 	fun extractSigningKeys(p: Preferences): SigningKeys {
 		val publicKey = PublicSigningKey.fromString(p[__publicKeyKey] ?: "").getOrNull()
@@ -108,37 +130,9 @@ class ProfileDataStoreStore(
 		signingKeysFlow().stateIn(coroutineScope, SharingStarted.Eagerly, SigningKeys())
 	}
 
-	override suspend fun updateCred(func: (Credentials) -> Credentials) {
-		__dataStore.edit { preferences ->
-			val oldCreds = extractCred(preferences)
-			val newCreds = func(oldCreds)
-			if (newCreds.user != oldCreds.user) {
-				preferences[__userKey] = newCreds.user
-			}
-			if (newCreds.passwd != oldCreds.passwd) {
-				preferences[__passwdKey] = newCreds.passwd
-			}
-		}
-	}
-
-	override suspend fun updateTmpCred(func: (TmpCredentials) -> TmpCredentials) {
-		__dataStore.edit { preferences ->
-			val oldCreds = extractTmpCred(preferences)
-			val newCreds = func(oldCreds)
-			Log.d("Locodile", "updateTmpCred: oldCreds=$oldCreds, newCreds=$newCreds")
-			if (newCreds.id != oldCreds.id) {
-				preferences[__idKey] = newCreds.id.toString()
-			}
-			if (newCreds.token != oldCreds.token) {
-				preferences[__tokenKey] = newCreds.token
-			}
-		}
-	}
-
-	override suspend fun updateKeys(func: (SigningKeys) -> SigningKeys) {
+	override suspend fun setSigningKeys(newKeys: SigningKeys) {
 		__dataStore.edit { preferences ->
 			val oldKeys = extractSigningKeys(preferences)
-			val newKeys = func(oldKeys)
 			if (newKeys.keyPair != null && newKeys.keyOwner != "") {
 				if (newKeys.keyPair != oldKeys.keyPair) {
 					preferences[__publicKeyKey] = newKeys.keyPair.public.toString()
@@ -152,6 +146,14 @@ class ProfileDataStoreStore(
 				preferences[__privateKeyKey] = ""
 				preferences[__keyOwnerKey] = ""
 			}
+		}
+	}
+
+	//--
+
+	fun launchEdit(block: suspend (ProfileStore) -> Unit) {
+		coroutineScope.launch {
+			block(this@ProfileDataStoreStore)
 		}
 	}
 }

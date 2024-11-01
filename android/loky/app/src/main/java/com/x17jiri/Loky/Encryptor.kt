@@ -12,8 +12,6 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
 class Encryptor(val __publicKey: ByteArray?, val __privateKey: ByteArray?) {
 	companion object {
@@ -92,7 +90,6 @@ class Encryptor(val __publicKey: ByteArray?, val __privateKey: ByteArray?) {
 		__rsaPrivateKey = keyPair.private
 	}
 
-	@OptIn(ExperimentalEncodingApi::class)
 	fun encrypt(input: String, validationPrefix: String): String {
 		if (__rsaPublicKey == null) {
 			throw Exception("Public key is not set")
@@ -104,7 +101,6 @@ class Encryptor(val __publicKey: ByteArray?, val __privateKey: ByteArray?) {
 		return Base64.encode(encryptedAESKey) + ":" + Base64.encode(encryptedMessage)
 	}
 
-	@OptIn(ExperimentalEncodingApi::class)
 	fun decrypt(input: String, validatonPrefix: String): String? {
 		if (__rsaPrivateKey == null) {
 			throw Exception("Private key is not set")

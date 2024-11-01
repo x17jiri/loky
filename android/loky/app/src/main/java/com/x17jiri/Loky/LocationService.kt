@@ -47,6 +47,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.newFixedThreadPoolContext
 import java.util.concurrent.Executor
 
 class LocationService: Service() {
@@ -89,7 +90,7 @@ class LocationService: Service() {
 	private val NOTIFICATION_ID = 1
 	private lateinit var serviceScope: CoroutineScope
 	private lateinit var server: ServerInterface
-	private lateinit var contacts: StateFlow<List<Contact>>
+	private lateinit var contactStates: StateFlow<List<SendChan>>
 	private lateinit var shareFreq: StateFlow<SharingFrequency>
 	private lateinit var powerManager: PowerManager
 	private lateinit var wakeLock: PowerManager.WakeLock
@@ -102,15 +103,11 @@ class LocationService: Service() {
 		serviceScope = CoroutineScope(Dispatchers.IO)
 		server = this.__server
 
-		val contactFlow = this.__contactsStore.flow().map { list ->
-			list.filter { contact -> contact.send }
-		}
-		contacts = contactFlow.stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
+		contactStates = this.__sendChanStateStore
+			.flow()
+			.stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
 
-		val shareFreqFlow =
-			this
-			.__settings
-			.shareFreqFlow()
+		val shareFreqFlow = this.__settings.shareFreqFlow()
 		shareFreq = shareFreqFlow.stateIn(serviceScope, SharingStarted.Eagerly, SharingFrequency())
 
 		powerManager = getSystemService(POWER_SERVICE) as PowerManager
@@ -169,7 +166,8 @@ class LocationService: Service() {
 			val newListener = object : LocationListener {
 				val __serviceScope = serviceScope
 				val __server = server
-				val __contacts = contacts
+				var __prevIds = emptyList<String>()
+				val __contactStates = contactStates
 
 				override fun onLocationChanged(locations: List<Location>) {
 					if (locations.isNotEmpty()) {
@@ -177,9 +175,13 @@ class LocationService: Service() {
 					}
 				}
 
-				override fun onLocationChanged(location: Location) {
+				override fun onLocationChanged(loc: Location) {
 					__serviceScope.launch {
-						__server.sendLoc(location, __contacts.value)
+						val newStates = __contactStates.value
+						val newIds = newStates.map { it.id }.sorted()
+						val changed = newIds != __prevIds
+						__prevIds = newIds
+						__server.sendLoc(loc, newStates, forceKeyResend = changed)
 					}
 				}
 			}

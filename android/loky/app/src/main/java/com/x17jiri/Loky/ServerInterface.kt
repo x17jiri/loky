@@ -42,15 +42,13 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.lang.reflect.Type
 import java.time.Instant
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.math.abs
 
 data class UserInfo(
-	val id: Long,
+	val id: String,
 	val publicSigningKey: PublicSigningKey,
 )
 
@@ -64,7 +62,9 @@ class ServerInterface(
 	private val gson = Gson()
 
 	private val profileStore = context.__profileStore
-	private val auth = profileStore.tmpCred
+	private val bearer = profileStore.bearer
+	private val settingsStore = context.__settings
+	private val lastKeyResend = settingsStore.lastKeyResend
 	private val contactsStore = context.__contactsStore
 	private val preKeyStore = context.__preKeyStore
 
@@ -98,7 +98,7 @@ class ServerInterface(
 	suspend fun <Request, Response> __restAPI(
 		url: String,
 		request: Request,
-		autoAuthorize: Boolean,
+		useBearer: Boolean,
 		responseType: Class<Response>
 	): Result<Response> {
 		try {
@@ -106,9 +106,8 @@ class ServerInterface(
 			connection.requestMethod = "POST"
 			connection.setRequestProperty("Content-Type", "application/json")
 			connection.setRequestProperty("Accept", "application/json")
-			if (autoAuthorize) {
-				val auth = this.auth.value
-				connection.setRequestProperty("Authorization", "Token ${auth.id},${auth.token}")
+			if (useBearer) {
+				connection.setRequestProperty("Authorization", "Bearer ${this.bearer.value}")
 			}
 			connection.doOutput = true
 			Log.d("Locodile", "ServerInterface.restAPI: url=$url, request=$request")
@@ -148,30 +147,28 @@ class ServerInterface(
 	inline suspend fun <reified Request, reified Response> restAPI(
 		url: String,
 		request: Request,
-		autoAuthorize: Boolean = true,
+		useBearer: Boolean = true,
 	): Result<Response> {
-		return __restAPI(url, request, autoAuthorize, Response::class.java)
+		return __restAPI(url, request, useBearer, Response::class.java)
 	}
 
-	@OptIn(ExperimentalEncodingApi::class)
 	suspend fun login(): Result<Unit> {
 		return withContext(Dispatchers.IO) {
-			val cred = profileStore.cred.value
-			val signingKeys = profileStore.signingKeys.value
-
 			// Note: the password hash is not used for security.
 			// It is used so we can limit message size on the server side
 			// without limiting the password size.
-			val username = cred.user
-			val passwd = Base64.encode(Encryptor.hash(cred.passwd))
+			val cred = profileStore.cred.value
+			val username = cred.username
+			val passwd = Base64.encode(Crypto.hash(Crypto.strToByteArray(cred.passwd)))
 
+			val signingKeys = profileStore.signingKeys.value
 			val keyPair: SigningKeyPair
 			if (signingKeys.keyPair != null && signingKeys.keyOwner == username) {
 				keyPair = signingKeys.keyPair
 			} else {
 				try {
 					keyPair = SigningKeyPair.generate()
-					profileStore.updateKeys { SigningKeys(keyPair, username) }
+					profileStore.setSigningKeys(keyPair, username)
 				} catch (e: Exception) {
 					Log.d("Locodile", "ServerInterface.login: e=$e")
 					return@withContext Result.failure(e)
@@ -181,25 +178,19 @@ class ServerInterface(
 			data class LoginRequest(
 				val name: String,
 				val passwd: String,
-				val public_signing_key: String,
+				val key: String, // our public signing key
 			)
 
 			data class LoginResponse(
-				val id: Long,
-				val token: String,
+				val bearer: String,
 			)
 
 			restAPI<LoginRequest, LoginResponse>(
 				"https://$server/api/login",
 				LoginRequest(username, passwd, keyPair.public.toString()),
-				autoAuthorize = false,
+				useBearer = false,
 			).mapCatching { resp ->
-				profileStore.updateTmpCred {
-					TmpCredentials(
-						id = resp.id,
-						token = resp.token,
-					)
-				}
+				profileStore.setBearer(resp.bearer)
 				Unit
 			}
 		}
@@ -212,15 +203,15 @@ class ServerInterface(
 			)
 
 			data class UserInfoResponse(
-				val id: Long,
-				val public_signing_key: String,
+				val id: String,
+				val key: String,
 			)
 
 			restAPI<UserInfoRequest, UserInfoResponse>(
 				"https://$server/api/userInfo",
 				UserInfoRequest(username),
 			).mapCatching { resp ->
-				UserInfo(resp.id, PublicSigningKey.fromString(resp.public_signing_key).getOrThrow())
+				UserInfo(resp.id, PublicSigningKey.fromString(resp.key).getOrThrow())
 			}
 		}
 	}
@@ -230,7 +221,7 @@ class ServerInterface(
 	> {
 		return withContext(Dispatchers.IO) {
 			data class FetchPreKeysRequest(
-				val who: List<Long>,
+				val ids: List<String>,
 			)
 
 			data class FetchPreKeysResponse(
@@ -239,9 +230,9 @@ class ServerInterface(
 
 			restAPI<FetchPreKeysRequest, FetchPreKeysResponse>(
 				"https://$server/api/fetchPrekeys",
-				FetchPreKeysRequest(contacts.map { it.id })
-			).mapCatching { response ->
-				contacts.zip(response.prekeys).map { (contact, keySig) ->
+				FetchPreKeysRequest(contacts.map { contact -> contact.id }),
+			).mapCatching { resp ->
+				contacts.zip(resp.prekeys).map { (contact, keySig) ->
 					val parts = keySig.split(",")
 					if (parts.size != 2) {
 						return@map Pair(contact, null)
@@ -266,7 +257,7 @@ class ServerInterface(
 			)
 
 			data class AddPreKeysResponse(
-				val used_prekeys: List<String>,
+				val live_prekeys: List<String>,
 				val added: Boolean,
 			)
 
@@ -277,19 +268,16 @@ class ServerInterface(
 				"https://$server/api/addPrekeys",
 				AddPreKeysRequest(newKeys.map { newKey ->
 					val signedKey = newKey.signBy(mySigningKeys.private)
-					"${signedKey.key.string},${signedKey.signature.string}"
+					"${signedKey.key.toString()},${signedKey.signature.toString()}"
 				}),
 			).mapCatching { resp ->
-				if (resp.used_prekeys.isNotEmpty()) {
-					preKeyStore.markUsed(resp.used_prekeys.mapNotNull { keySig ->
-						val parts = keySig.split(",")
-						if (parts.size != 2) {
-							return@mapNotNull null
-						}
-						PublicDHKey.fromString(parts[0]).getOrNull()
-					})
-					preKeyStore.delExpired()
-				}
+				preKeyStore.markLive(resp.live_prekeys.mapNotNull { keySig ->
+					val parts = keySig.split(",")
+					if (parts.size != 2) {
+						return@mapNotNull null
+					}
+					PublicDHKey.fromString(parts[0]).getOrNull()
+				})
 				if (!resp.added) {
 					throw Exception("Server did not accept prekeys")
 				}
@@ -297,15 +285,18 @@ class ServerInterface(
 		}
 	}
 
-	@OptIn(ExperimentalEncodingApi::class)
-	suspend fun sendLoc(loc: Location, contacts: List<SendChan>): Result<Unit> {
+	suspend fun sendLoc(
+		loc: Location,
+		contacts: List<SendChan>,
+		forceKeyResend: Boolean = false,
+	): Result<Unit> {
 		if (contacts.isEmpty()) {
 			return Result.success(Unit)
 		}
 
 		return withContext(Dispatchers.IO) {
 			data class Message(
-				val to: Long,
+				val to: String,
 				val type: String,
 				val msg: String,
 			)
@@ -320,31 +311,41 @@ class ServerInterface(
 
 			val messages = mutableListOf<Message>()
 
+			val lastKeyResend = lastKeyResend.value
+			val nextKeyResend = lastKeyResend + KEY_RESEND_SEC
 			val now = monotonicSeconds()
-			val needNewKeys = contacts.filter { it.needNewKeys(now) }
-			if (needNewKeys.isNotEmpty()) {
-				fetchPreKeys(needNewKeys).fold(
-					onSuccess = {
-						for ((contact, theirNewKey) in it) {
-							// Note that we want to call `switchKeys()` even if `theirNewKey` is null.
-							contact.switchKeys(now, theirNewKey) { myNewKey, theirNewKey ->
-								val myKey = myNewKey.key.toString()
-								val mySig = myNewKey.signature.toString()
-								val theirKey = theirNewKey.toString()
-								messages.add(Message(contact.id, "k", "$myKey,$mySig,$theirKey"))
+			if (forceKeyResend || now !in lastKeyResend until nextKeyResend) {
+				// Try to change keys if the time has come
+				val toChange = contacts.filter { contact -> contact.shouldChangeKeys(now) }
+				if (toChange.isNotEmpty()) {
+					fetchPreKeys(toChange).fold(
+						onSuccess = { newKeys ->
+							for ((contact, theirNewKey) in newKeys) {
+								// Note that we want to call `changeKeys()` even
+								// if `theirNewKey` is null, because it will handle
+								// possible expiration of the old keys.
+								contact.changeKeys(now, theirNewKey)
 							}
+						},
+						onFailure = { e ->
+							return@withContext Result.failure(e)
 						}
-					},
-					onFailure = { e ->
-						return@withContext Result.failure(e)
-					}
-				)
+					)
+				}
+				// Send message with the current keys
+				for (contact in contacts) {
+					val (myKey, theirKey) = contact.usedKeys() ?: continue
+					val myKeyStr = myKey.key.toString()
+					val mySigStr = myKey.signature.toString()
+					val theirKeyStr = theirKey.toString()
+					messages.add(Message(contact.id, "k", "$myKeyStr,$mySigStr,$theirKeyStr"))
+				}
 			}
 
 			val msg = loc.latitude.toString() + "," + loc.longitude.toString()
 			for (contact in contacts) {
 				contact.encrypt(msg).onSuccess { encrypted ->
-					messages.add(Message(contact.id, "", Base64.encode(encrypted)))
+					messages.add(Message(contact.id, "m", "${Base64.encode(encrypted)}"))
 				}
 			}
 
@@ -353,7 +354,7 @@ class ServerInterface(
 				SendRequest(messages)
 			).mapCatching {
 				if (it.needPreKeys) {
-					sendPreKeys().getOrThrow()
+					addPreKeys().getOrThrow()
 				} else {
 					Unit
 				}
@@ -361,19 +362,18 @@ class ServerInterface(
 		}
 	}
 
-	@OptIn(ExperimentalEncodingApi::class)
-	suspend fun recv(contacts: Map<Long, RecvChan>): Result<List<Message>> {
+	suspend fun recv(contacts: Map<String, RecvChan>): Result<List<Message>> {
 		if (contacts.isEmpty()) {
 			return Result.success(emptyList())
 		}
 
 		return withContext(Dispatchers.IO) {
-			data class RecvRequest()
+			class RecvRequest {}
 
 			data class RecvResponseItem(
-				val from: Long,
-				val ageSeconds: Long,
+				val from: String,
 				val type: String,
+				val ageSec: Long,
 				val msg: String,
 			)
 
@@ -400,7 +400,7 @@ class ServerInterface(
 							val theirSig = Signature.fromString(keys[1]).getOrThrow()
 							val myKey = PublicDHKey.fromString(keys[2]).getOrThrow()
 							contact.switchKeys(myKey, SignedPublicDHKey(theirKey, theirSig))
-						} else {
+						} else if (msg.type == "m") {
 							val encrypted = Base64.decode(msg.msg)
 							val decrypted = contact.decrypt(encrypted).getOrThrow()
 							val parts = decrypted.split(",")
@@ -408,7 +408,7 @@ class ServerInterface(
 								Log.d("Locodile", "ServerInterface.recv: invalid loc")
 								continue
 							}
-							val timestamp = now - msg.ageSeconds
+							val timestamp = now - msg.ageSec
 							val lat = parts[0].toDouble()
 							val lon = parts[1].toDouble()
 							messages.add(Message(msg.from, timestamp, lat, lon))

@@ -102,11 +102,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.security.SecureRandom
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 import com.mapbox.geojson.Point
 import com.mapbox.maps.extension.compose.MapEffect
 import com.mapbox.maps.extension.compose.MapboxMap
@@ -120,6 +117,7 @@ import com.mapbox.maps.plugin.locationcomponent.createDefault2DPuck
 import com.mapbox.maps.plugin.locationcomponent.location
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -176,7 +174,7 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 		LaunchedEffect(Unit) {
 			model.inboxMan.launchCleanUp()
 			val cred = model.profileStore.cred.value
-			if (cred.user.isNotEmpty() && cred.passwd.isNotEmpty()) {
+			if (cred.username.isNotEmpty() && cred.passwd.isNotEmpty()) {
 				scope.launch(Dispatchers.IO) {
 					model.server.login().fold(
 						onSuccess = {
@@ -205,9 +203,12 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 	}
 }
 
+@SuppressLint("StateFlowValueCalledInComposition")
 @Composable
 fun LoginScreen(navController: NavController, model: MainViewModel, scope: CoroutineScope, message: String) {
-	val cred by model.profileStore.cred.collectAsState()
+	val cred = model.profileStore.cred.value
+	var username by remember { mutableStateOf(cred.username) }
+	var passwd by remember { mutableStateOf(cred.passwd) }
 	var failedDialog by remember { mutableStateOf(message) }
 	Column(
 		modifier = Modifier.fillMaxSize(),
@@ -219,10 +220,11 @@ fun LoginScreen(navController: NavController, model: MainViewModel, scope: Corou
 			verticalArrangement = Arrangement.Center,
 		) {
 			TextField(
-				value = cred.user,
-				onValueChange = { newName ->
-					runBlocking {
-						model.profileStore.updateCred { cred -> cred.copy(user = newName) }
+				value = username,
+				onValueChange = {
+					username = it
+					model.profileStore.launchEdit {
+						it.setCred(Credentials(username, passwd))
 					}
 				},
 				label = { Text("Username") },
@@ -231,10 +233,11 @@ fun LoginScreen(navController: NavController, model: MainViewModel, scope: Corou
 					.padding(10.dp)
 			)
 			TextField(
-				value = cred.passwd,
-				onValueChange = { newPasswd ->
-					runBlocking {
-						model.profileStore.updateCred { cred -> cred.copy(passwd = newPasswd) }
+				value = passwd,
+				onValueChange = {
+					passwd = it
+					model.profileStore.launchEdit {
+						it.setCred(Credentials(username, passwd))
 					}
 				},
 				label = { Text("Password") },
@@ -249,7 +252,7 @@ fun LoginScreen(navController: NavController, model: MainViewModel, scope: Corou
 						popUpTo(navController.graph.startDestinationId) { inclusive = true }
 					}
 				},
-				enabled = cred.user != "" && cred.passwd != "",
+				enabled = username != "" && passwd != "",
 				content = { Text("Login") },
 				modifier = Modifier
 					.fillMaxWidth()
@@ -787,8 +790,8 @@ fun Settings(
 						onValueChange = { newValue ->
 							val sec = shareFreqValues[newValue.roundToInt()]
 							textValue = sec.second
-							model.settings.launchUpdateShareFreq { freq ->
-								SharingFrequency(sec.first)
+							model.settings.launchEdit {
+								it.setShareFreq(SharingFrequency(sec.first))
 							}
 							sliderValue = newValue
 						},

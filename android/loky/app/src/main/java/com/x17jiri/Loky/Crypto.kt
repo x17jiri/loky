@@ -13,8 +13,6 @@ import javax.crypto.Cipher
 import javax.crypto.KeyAgreement
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
 class PublicECKey(val key: PublicKey) {
 	companion object {
@@ -31,7 +29,6 @@ class PublicECKey(val key: PublicKey) {
 			}
 		}
 
-		@OptIn(ExperimentalEncodingApi::class)
 		fun fromString(key: String): Result<PublicECKey> {
 			try {
 				val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
@@ -42,16 +39,13 @@ class PublicECKey(val key: PublicKey) {
 		}
 	}
 
-	fun toString(): String {
-		return string
+	fun encode(): ByteArray {
+		return key.encoded
 	}
 
-	val encoded: ByteArray
-		get() = key.encoded
-
-	@OptIn(ExperimentalEncodingApi::class)
-	val string: String
-		get() = PREFIX + Base64.encode(key.encoded) + SUFFIX
+	override fun toString(): String {
+		return PREFIX + Base64.encode(key.encoded) + SUFFIX
+	}
 }
 
 class PrivateECKey(val key: PrivateKey) {
@@ -69,7 +63,6 @@ class PrivateECKey(val key: PrivateKey) {
 			}
 		}
 
-		@OptIn(ExperimentalEncodingApi::class)
 		fun fromString(key: String): Result<PrivateECKey> {
 			try {
 				val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
@@ -80,16 +73,13 @@ class PrivateECKey(val key: PrivateKey) {
 		}
 	}
 
-	fun toString(): String {
-		return string
+	fun encode(): ByteArray {
+		return key.encoded
 	}
 
-	val encoded: ByteArray
-		get() = key.encoded
-
-	@OptIn(ExperimentalEncodingApi::class)
-	val string: String
-		get() = PREFIX + Base64.encode(key.encoded) + SUFFIX
+	override fun toString(): String {
+		return PREFIX + Base64.encode(key.encoded) + SUFFIX
+	}
 }
 
 class ECKeyPair(val public: PublicECKey, val private: PrivateECKey) {
@@ -116,7 +106,6 @@ class Signature(val encoded: ByteArray) {
 			return Signature(bytes)
 		}
 
-		@OptIn(ExperimentalEncodingApi::class)
 		fun fromString(str: String): Result<Signature> {
 			try {
 				val s = Crypto.extractFromStr(str, PREFIX, SUFFIX)
@@ -127,13 +116,9 @@ class Signature(val encoded: ByteArray) {
 		}
 	}
 
-	fun toString(): String {
-		return string
+	override fun toString(): String {
+		return PREFIX + Base64.encode(encoded) + SUFFIX
 	}
-
-	@OptIn(ExperimentalEncodingApi::class)
-	val string: String
-		get() = PREFIX + Base64.encode(encoded) + SUFFIX
 }
 
 class PublicSigningKey(val key: PublicECKey) {
@@ -145,22 +130,19 @@ class PublicSigningKey(val key: PublicECKey) {
 			return PublicECKey.fromBytes(key).map { PublicSigningKey(it) }
 		}
 
-		@OptIn(ExperimentalEncodingApi::class)
 		fun fromString(key: String): Result<PublicSigningKey> {
 			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
 			return PublicECKey.fromString(k).map { PublicSigningKey(it) }
 		}
 	}
 
-	fun toString(): String {
-		return string
+	fun encode(): ByteArray {
+		return key.encode()
 	}
 
-	val encoded: ByteArray
-		get() = key.encoded
-
-	val string: String
-		get() = PREFIX + key.string + SUFFIX
+	override fun toString(): String {
+		return PREFIX + key.toString() + SUFFIX
+	}
 }
 
 class PrivateSigningKey(val key: PrivateECKey) {
@@ -172,22 +154,19 @@ class PrivateSigningKey(val key: PrivateECKey) {
 			return PrivateECKey.fromBytes(key).map { PrivateSigningKey(it) }
 		}
 
-		@OptIn(ExperimentalEncodingApi::class)
 		fun fromString(key: String): Result<PrivateSigningKey> {
 			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
 			return PrivateECKey.fromString(k).map { PrivateSigningKey(it) }
 		}
 	}
 
-	fun toString(): String {
-		return string
+	fun encode(): ByteArray {
+		return key.encode()
 	}
 
-	val encoded: ByteArray
-		get() = key.encoded
-
-	val string: String
-		get() = PREFIX + key.string + SUFFIX
+	override fun toString(): String {
+		return PREFIX + key.toString() + SUFFIX
+	}
 }
 
 class SigningKeyPair(val public: PublicSigningKey, val private: PrivateSigningKey) {
@@ -211,25 +190,22 @@ class PublicDHKey(val key: PublicECKey) {
 			return PublicECKey.fromBytes(key).map { PublicDHKey(it) }
 		}
 
-		@OptIn(ExperimentalEncodingApi::class)
 		fun fromString(key: String): Result<PublicDHKey> {
 			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
 			return PublicECKey.fromString(k).map { PublicDHKey(it) }
 		}
 	}
 
-	fun toString(): String {
-		return string
+	fun encode(): ByteArray {
+		return key.encode()
 	}
 
-	val encoded: ByteArray
-		get() = key.encoded
-
-	val string: String
-		get() = PREFIX + key.string + SUFFIX
+	override fun toString(): String {
+		return PREFIX + key.toString() + SUFFIX
+	}
 
 	fun signBy(privateSigningKey: PrivateSigningKey): SignedPublicDHKey {
-		val signature = Crypto.sign(key.encoded, privateSigningKey)
+		val signature = Crypto.sign(encode(), privateSigningKey)
 		return SignedPublicDHKey(this, signature)
 	}
 }
@@ -243,22 +219,19 @@ class PrivateDHKey(val key: PrivateECKey) {
 			return PrivateECKey.fromBytes(key).map { PrivateDHKey(it) }
 		}
 
-		@OptIn(ExperimentalEncodingApi::class)
 		fun fromString(key: String): Result<PrivateDHKey> {
 			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
 			return PrivateECKey.fromString(k).map { PrivateDHKey(it) }
 		}
 	}
 
-	fun toString(): String {
-		return string
+	fun encode(): ByteArray {
+		return key.encode()
 	}
 
-	val encoded: ByteArray
-		get() = key.encoded
-
-	val string: String
-		get() = PREFIX + key.string + SUFFIX
+	override fun toString(): String {
+		return PREFIX + key.toString() + SUFFIX
+	}
 }
 
 class DHKeyPair(val public: PublicDHKey, val private: PrivateDHKey) {
@@ -275,7 +248,7 @@ class DHKeyPair(val public: PublicDHKey, val private: PrivateDHKey) {
 
 class SignedPublicDHKey(val key: PublicDHKey, val signature: Signature) {
 	fun verifySignature(publicSigningKey: PublicSigningKey): Boolean {
-		return Crypto.verifySignature(key.encoded, signature, publicSigningKey)
+		return Crypto.verifySignature(key.encode(), signature, publicSigningKey)
 	}
 }
 
@@ -293,7 +266,6 @@ class SecretKey(val key: javax.crypto.SecretKey) {
 			}
 		}
 
-		@OptIn(ExperimentalEncodingApi::class)
 		fun fromString(key: String): Result<SecretKey> {
 			try {
 				val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
@@ -316,16 +288,13 @@ class SecretKey(val key: javax.crypto.SecretKey) {
 		}
 	}
 
-	fun toString(): String {
-		return string
+	fun encode(): ByteArray {
+		return key.encoded
 	}
 
-	val encoded: ByteArray
-		get() = key.encoded
-
-	@OptIn(ExperimentalEncodingApi::class)
-	val string: String
-		get() = PREFIX + Base64.encode(encoded) + SUFFIX
+	override fun toString(): String {
+		return PREFIX + Base64.encode(encode()) + SUFFIX
+	}
 }
 
 class Crypto {
@@ -401,6 +370,19 @@ class Crypto {
 			verifier.update(msg)
 			return verifier.verify(signature.encoded)
 		}
+	}
+}
+
+object Base64 {
+	val __encoder = java.util.Base64.getUrlEncoder().withoutPadding()
+	val __decoder = java.util.Base64.getUrlDecoder()
+
+	fun encode(bytes: ByteArray): String {
+		return __encoder.encodeToString(bytes)
+	}
+
+	fun decode(str: String): ByteArray {
+		return __decoder.decode(str)
 	}
 }
 

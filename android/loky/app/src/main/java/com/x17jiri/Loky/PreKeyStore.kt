@@ -17,9 +17,7 @@ interface PreKeyStore {
 	// The new keys are stored in the store only if sendToServer returns success
 	suspend fun generate(sendToServer: suspend (List<PublicDHKey>) -> Result<Unit>)
 
-	suspend fun markUsed(keys: List<PublicDHKey>)
-
-	suspend fun delExpired()
+	suspend fun markLive(liveKeys: List<PublicDHKey>)
 
 	fun launchEdit(block: suspend (PreKeyStore) -> Unit)
 }
@@ -41,9 +39,7 @@ class PreKeyStoreMock(
 		}
 	}
 
-	override suspend fun markUsed(keys: List<PublicDHKey>) {}
-
-	override suspend fun delExpired() {}
+	override suspend fun markLive(liveKeys: List<PublicDHKey>) {}
 
 	override fun launchEdit(block: suspend (PreKeyStore) -> Unit) {
 		coroutineScope.launch {
@@ -71,8 +67,8 @@ interface PreKeyDao {
 	@Query("DELETE FROM PreKeyStore WHERE used = 1 AND usedTime < :validFrom")
 	suspend fun delExpired(validFrom: Long): Int
 
-	@Query("UPDATE PreKeyStore SET used = 1, usedTime = :usedTime WHERE publicKey IN (:publicKeys)")
-	suspend fun markUsed(publicKeys: List<String>, usedTime: Long): Unit
+	@Query("UPDATE PreKeyStore SET used = 1, usedTime = :now WHERE publicKey NOT IN (:liveKeys)")
+	suspend fun markLive(liveKeys: List<String>, now: Long): Unit
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun insert(what: List<PreKeyDBEntity>): Unit
@@ -146,32 +142,24 @@ class PreKeyDBStore(
 		}
 	}
 
-	override suspend fun markUsed(usedKeys: List<PublicDHKey>) {
-		val strKeys = usedKeys.map { it.toString() }.toSet()
-		val now = monotonicSeconds()
-		keysMutex.withLock {
-			keys.replaceAll { key, data ->
-				if (key in strKeys) {
-					data.copy(used = true, usedTime = now)
-				} else {
-					data
-				}
-			}
-		}
-		launchEdit {
-			dao.markUsed(strKeys.toList(), now)
-		}
-	}
-
-	override suspend fun delExpired() {
+	override suspend fun markLive(liveKeys: List<PublicDHKey>) {
+		val strKeys = liveKeys.map { it.toString() }.toSet()
 		val now = monotonicSeconds()
 		val validFrom = now - KEY_EXPIRE.inWholeSeconds
 		keysMutex.withLock {
+			keys.replaceAll { key, data ->
+				if (key in strKeys) {
+					data
+				} else {
+					data.copy(used = true, usedTime = now)
+				}
+			}
 			keys.entries.removeIf { (_, data) ->
 				data.used && data.usedTime < validFrom
 			}
 		}
 		launchEdit {
+			dao.markLive(strKeys.toList(), now)
 			dao.delExpired(validFrom)
 		}
 	}

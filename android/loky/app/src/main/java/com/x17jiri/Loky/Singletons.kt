@@ -97,6 +97,6 @@ val Context.__inboxMan by SingletonBase { appContext, scope ->
 }
 
 val Context.__settings by SingletonBase { appContext, scope ->
-	SettingsManager(appContext.__dataStore, scope)
+	SettingsDataStoreStore(appContext.__dataStore, scope)
 }
 

@@ -90,7 +90,7 @@ class LocationService: Service() {
 	private val NOTIFICATION_ID = 1
 	private lateinit var serviceScope: CoroutineScope
 	private lateinit var server: ServerInterface
-	private lateinit var contactStates: StateFlow<List<SendChan>>
+	private lateinit var contacts: StateFlow<List<SendChan>>
 	private lateinit var shareFreq: StateFlow<SharingFrequency>
 	private lateinit var powerManager: PowerManager
 	private lateinit var wakeLock: PowerManager.WakeLock
@@ -103,7 +103,7 @@ class LocationService: Service() {
 		serviceScope = CoroutineScope(Dispatchers.IO)
 		server = this.__server
 
-		contactStates = this.__sendChanStateStore
+		contacts = this.__sendChanStateStore
 			.flow()
 			.stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
 
@@ -166,8 +166,8 @@ class LocationService: Service() {
 			val newListener = object : LocationListener {
 				val __serviceScope = serviceScope
 				val __server = server
-				var __prevIds = emptyList<String>()
-				val __contactStates = contactStates
+				var __oldContacts = emptyList<SendChan>()
+				val __contacts = contacts
 
 				override fun onLocationChanged(locations: List<Location>) {
 					if (locations.isNotEmpty()) {
@@ -177,11 +177,16 @@ class LocationService: Service() {
 
 				override fun onLocationChanged(loc: Location) {
 					__serviceScope.launch {
-						val newStates = __contactStates.value
-						val newIds = newStates.map { it.id }.sorted()
-						val changed = newIds != __prevIds
-						__prevIds = newIds
-						__server.sendLoc(loc, newStates, forceKeyResend = changed)
+						val contacts = __contacts.value
+						val oldContacts = __oldContacts
+						__oldContacts = contacts
+						__server
+							.sendLoc(loc, contacts, forceKeyResend = contacts !== oldContacts)
+							.onSuccess { needPrekeys ->
+								if (needPrekeys.value) {
+									__server.addPreKeys()
+								}
+							}
 					}
 				}
 			}

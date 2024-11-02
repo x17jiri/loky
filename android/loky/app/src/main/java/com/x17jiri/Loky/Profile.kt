@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 
 data class Credentials(
@@ -28,8 +29,13 @@ data class SigningKeys(
 	val keyOwner: String = "",
 )
 
+data class LoadingValue<T>(
+	val loaded: Boolean,
+	val value: T,
+)
+
 interface ProfileStore {
-	val cred: StateFlow<Credentials>
+	val cred: StateFlow<LoadingValue<Credentials>>
 	val bearer: StateFlow<String>
 	val signingKeys: StateFlow<SigningKeys>
 
@@ -71,7 +77,15 @@ class ProfileDataStoreStore(
 	fun credFlow(): Flow<Credentials> = __dataStore.data.map { data -> extractCred(data) }
 
 	override val cred by lazy {
-		credFlow().stateIn(coroutineScope, SharingStarted.Eagerly, Credentials())
+		credFlow()
+			.map<Credentials, LoadingValue<Credentials>> {
+				LoadingValue(loaded = true, value = it)
+			}
+			.stateIn(
+				coroutineScope,
+				SharingStarted.Eagerly,
+				LoadingValue(loaded = false, value = Credentials())
+			)
 	}
 
 	override suspend fun setCred(cred: Credentials) {
@@ -151,7 +165,7 @@ class ProfileDataStoreStore(
 
 	//--
 
-	fun launchEdit(block: suspend (ProfileStore) -> Unit) {
+	override fun launchEdit(block: suspend (ProfileStore) -> Unit) {
 		coroutineScope.launch {
 			block(this@ProfileDataStoreStore)
 		}

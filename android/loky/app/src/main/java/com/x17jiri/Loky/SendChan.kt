@@ -8,6 +8,7 @@ import androidx.room.Query
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,27 +34,37 @@ abstract class SendChanStateStore(
 	private val mutex = Mutex()
 
 	fun flow(): Flow<List<SendChan>> {
-		return contacts.flow().map { newContactList ->
-			mutex.withLock {
-				val mySigningKeys = profile.signingKeys.value.keyPair
-				if (mySigningKeys == null) {
-					return@withLock emptyList()
-				}
+		return contacts.flow()
+			.map { newContactList ->
 				newContactList
 					.filter { contact -> contact.send }
-					.map { contact ->
-						val contactID = contact.id
-						val state = states.getOrPut(contactID) {
-							val initState = load(contactID)
-							PersistentValue(
-								initState,
-								{ newState -> launchSave(contactID, newState) },
-							)
-						}
-						SendChan(contactID, mySigningKeys, contact.publicSigningKey, state)
-					}
+					// sort by id so we can easily compare the list to the old one
+					.sortedBy { it.id }
 			}
-		}
+			.distinctUntilChanged { old, new ->
+				// if all the ids are the same, we don't need to create new state objects
+				old.map { it.id } == new.map { it.id }
+			}
+			.map { newContactList ->
+				mutex.withLock {
+					val mySigningKeys = profile.signingKeys.value.keyPair
+					if (mySigningKeys == null) {
+						return@withLock emptyList()
+					}
+					newContactList
+						.map { contact ->
+							val contactID = contact.id
+							val state = states.getOrPut(contactID) {
+								val initState = load(contactID)
+								PersistentValue(
+									initState,
+									{ newState -> launchSave(contactID, newState) },
+								)
+							}
+							SendChan(contactID, mySigningKeys, contact.publicSigningKey, state)
+						}
+				}
+			}
 	}
 }
 
@@ -63,7 +74,7 @@ class SendChanStateStoreMock(
 	states: MutableMap<String, PersistentValue<SendChanState>> = mutableMapOf(),
 ): SendChanStateStore(profile, contacts, states) {
 	override suspend fun load(contactID: String): SendChanState {
-		return SendChanState(null, null, null, 0, 0, 0)
+		return SendChanState(null, null, null, 0)
 	}
 
 	override fun launchSave(contactID: String, state: SendChanState) {
@@ -102,7 +113,7 @@ class SendChanStateDBStore(
 	override suspend fun load(contactID: String): SendChanState {
 		val dbEntity = dao.load(contactID)
 		if (dbEntity == null) {
-			return SendChanState(null, null, null, 0, 0, 0)
+			return SendChanState(null, null, null, 0)
 		}
 
 		val myPublicKey = PublicDHKey.fromString(dbEntity.myPublicKey).getOrNull()

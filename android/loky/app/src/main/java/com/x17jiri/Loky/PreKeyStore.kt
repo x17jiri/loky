@@ -12,14 +12,12 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 interface PreKeyStore {
-	suspend fun takeKeyPair(publicKey: PublicDHKey): DHKeyPair?
+	suspend fun takeKeyPair(now: Long, publicKey: PublicDHKey): DHKeyPair?
 
 	// The new keys are stored in the store only if sendToServer returns success
 	suspend fun generate(sendToServer: suspend (List<PublicDHKey>) -> Result<Unit>)
 
 	suspend fun markLive(liveKeys: List<PublicDHKey>)
-
-	fun launchEdit(block: suspend (PreKeyStore) -> Unit)
 }
 
 class PreKeyStoreMock(
@@ -27,7 +25,7 @@ class PreKeyStoreMock(
 ): PreKeyStore {
 	private val keys = mutableMapOf<String, DHKeyPair>()
 
-	suspend override fun takeKeyPair(publicKey: PublicDHKey): DHKeyPair? {
+	suspend override fun takeKeyPair(now: Long, publicKey: PublicDHKey): DHKeyPair? {
 		val strKey = publicKey.toString()
 		return keys[strKey] ?: return null
 	}
@@ -40,12 +38,6 @@ class PreKeyStoreMock(
 	}
 
 	override suspend fun markLive(liveKeys: List<PublicDHKey>) {}
-
-	override fun launchEdit(block: suspend (PreKeyStore) -> Unit) {
-		coroutineScope.launch {
-			block(this@PreKeyStoreMock)
-		}
-	}
 }
 
 @Entity(
@@ -55,19 +47,21 @@ class PreKeyStoreMock(
 data class PreKeyDBEntity(
 	val publicKey: String,
 	val privateKey: String,
-	val used: Boolean,
-	val usedTime: Long,
+	val usedTime: Long?,
 )
 
 @Dao
 interface PreKeyDao {
 	@Query("SELECT * FROM PreKeyStore")
-	suspend fun loadAll(): List<PreKeyDBEntity>
+	fun flow(): Flow<List<PreKeyDBEntity>>
 
-	@Query("DELETE FROM PreKeyStore WHERE used = 1 AND usedTime < :validFrom")
+	@Query("DELETE FROM PreKeyStore WHERE usedTime IS NOT NULL AND usedTime < :validFrom")
 	suspend fun delExpired(validFrom: Long): Int
 
-	@Query("UPDATE PreKeyStore SET used = 1, usedTime = :now WHERE publicKey NOT IN (:liveKeys)")
+	@Query("UPDATE PreKeyStore SET usedTime = :now WHERE publicKey = :publicKey AND usedTime IS NULL")
+	suspend fun markUsed(publicKey: String, now: Long): Unit
+
+	@Query("UPDATE PreKeyStore SET usedTime = :now WHERE publicKey NOT IN (:liveKeys) AND usedTime IS NULL")
 	suspend fun markLive(liveKeys: List<String>, now: Long): Unit
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -82,8 +76,7 @@ interface PreKeyDao {
 
 data class PreKey(
 	val keyPair: DHKeyPair,
-	val used: Boolean = false,
-	val usedTime: Long = 0,
+	val usedTime: Long? = null,
 )
 
 class PreKeyDBStore(
@@ -102,7 +95,6 @@ class PreKeyDBStore(
 				if (publicKey != null && privateKey != null) {
 					keys[entity.publicKey] = PreKey(
 						DHKeyPair(publicKey, privateKey),
-						entity.used,
 						entity.usedTime,
 					)
 				}
@@ -110,15 +102,26 @@ class PreKeyDBStore(
 		}
 	}
 
-	override suspend fun takeKeyPair(publicKey: PublicDHKey): DHKeyPair? {
+	override suspend fun takeKeyPair(now: Long, publicKey: PublicDHKey): DHKeyPair? {
 		val strKey = publicKey.toString()
-		val data = keysMutex.withLock { keys.remove(strKey) }
-		if (data != null) {
-			launchEdit {
-				dao.delete(strKey)
+		val data =
+			keysMutex.withLock {
+				keys.compute(strKey) { _, value ->
+					if (value != null && value.usedTime == null) {
+						value.copy(usedTime = now)
+					} else {
+						value
+					}
+				}
 			}
+		if (data == null) {
+			return null
 		}
-		return data?.keyPair
+		launchEdit {
+			dao.markUsed(strKey, now)
+			// TODO - should run dao.delExpired()?
+		}
+		return data.keyPair
 	}
 
 	override suspend fun generate(sendToServer: suspend (List<PublicDHKey>) -> Result<Unit>) {
@@ -132,7 +135,6 @@ class PreKeyDBStore(
 				PreKeyDBEntity(
 					data.keyPair.public.toString(),
 					data.keyPair.private.toString(),
-					data.used,
 					data.usedTime,
 				)
 			}
@@ -145,18 +147,16 @@ class PreKeyDBStore(
 	override suspend fun markLive(liveKeys: List<PublicDHKey>) {
 		val strKeys = liveKeys.map { it.toString() }.toSet()
 		val now = monotonicSeconds()
-		val validFrom = now - KEY_EXPIRE.inWholeSeconds
+		val validFrom = now - KEY_EXPIRE_SEC
 		keysMutex.withLock {
 			keys.replaceAll { key, data ->
-				if (key in strKeys) {
+				if (key in strKeys || data.usedTime != null) {
 					data
 				} else {
-					data.copy(used = true, usedTime = now)
+					data.copy(usedTime = now)
 				}
 			}
-			keys.entries.removeIf { (_, data) ->
-				data.used && data.usedTime < validFrom
-			}
+			keys.entries.removeIf { (_, data) -> data.usedTime != null && data.usedTime < validFrom }
 		}
 		launchEdit {
 			dao.markLive(strKeys.toList(), now)
@@ -164,7 +164,7 @@ class PreKeyDBStore(
 		}
 	}
 
-	override fun launchEdit(block: suspend (PreKeyStore) -> Unit) {
+	fun launchEdit(block: suspend (PreKeyStore) -> Unit) {
 		coroutineScope.launch {
 			block(this@PreKeyDBStore)
 		}

@@ -20,13 +20,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class MainViewModel(val context: Context): ViewModel() {
+class MainViewModel(context: Context): ViewModel() {
 	val profileStore = context.__profileStore
 	val contactsStore = context.__contactsStore
 	val inboxMan = context.__inboxMan
+	val recvChanStateStore = context.__recvChanStateStore
 	val settings = context.__settings
 	val server = context.__server
-	val receiver = Receiver(server, inboxMan, viewModelScope)
+	val receiver = Receiver(server, inboxMan, recvChanStateStore, viewModelScope)
 }
 
 class MainViewModelFactory(private val context: Context) : ViewModelProvider.Factory {

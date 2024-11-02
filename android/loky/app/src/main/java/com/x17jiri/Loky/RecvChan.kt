@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -18,45 +19,59 @@ data class RecvChanState(
 	val sharedSecret: SecretKey?,
 )
 
-abstract class RevChanStateStore(
+abstract class RecvChanStateStore(
 	private val contacts: ContactsStore,
 	private val keyStore: PreKeyStore,
-	private val states: MutableMap<Long, PersistentValue<RecvChanState>> = mutableMapOf(),
+	private val states: MutableMap<String, PersistentValue<RecvChanState>> = mutableMapOf(),
 ) {
-	abstract suspend fun load(contactID: Long): RecvChanState
+	abstract suspend fun load(contactID: String): RecvChanState
 
-	abstract fun launchSave(contactID: Long, newState: RecvChanState)
+	abstract fun launchSave(contactID: String, newState: RecvChanState)
 
 	private val mutex = Mutex()
 
-	fun flow(): Flow<List<RecvChan>> {
-		return contacts.flow().map { newContactList ->
-			mutex.withLock {
+	fun flow(): Flow<Map<String, RecvChan>> {
+		return contacts.flow()
+			.map { newContactList ->
 				newContactList
 					.filter { contact -> contact.recv }
-					.map { contact ->
-						val contactID = contact.id
-						val state = states.getOrPut(contactID) {
-							val initState = load(contactID)
-							PersistentValue(initState, { newState -> launchSave(contactID, newState) })
-						}
-						RecvChan(keyStore, contact.publicSigningKey, state)
-					}
+					// sort by id so we can easily compare the list to the old one
+					.sortedBy { it.id }
 			}
-		}
+			.distinctUntilChanged { old, new ->
+				// if all the ids are the same, we don't need to create new state objects
+				old.map { it.id } == new.map { it.id }
+			}
+			.map { newContactList ->
+				mutex.withLock {
+					newContactList
+						.map { contact ->
+							val contactID = contact.id
+							val state = states.getOrPut(contactID) {
+								val initState = load(contactID)
+								PersistentValue(
+									initState,
+									{ newState -> launchSave(contactID, newState) },
+								)
+							}
+							RecvChan(contactID, keyStore, contact.publicSigningKey, state)
+						}
+						.associateBy { it.id }
+				}
+			}
 	}
 }
 
 class RecvChanStateStoreMock(
 	contacts: ContactsStore,
 	keyStore: PreKeyStore,
-	states: MutableMap<Long, PersistentValue<RecvChanState>> = mutableMapOf(),
-): RevChanStateStore(contacts, keyStore, states) {
-	override suspend fun load(contactID: Long): RecvChanState {
+	states: MutableMap<String, PersistentValue<RecvChanState>> = mutableMapOf(),
+): RecvChanStateStore(contacts, keyStore, states) {
+	override suspend fun load(contactID: String): RecvChanState {
 		return RecvChanState(null, null, null)
 	}
 
-	override fun launchSave(contactID: Long, newState: RecvChanState) {
+	override fun launchSave(contactID: String, newState: RecvChanState) {
 		// Do nothing
 	}
 }
@@ -66,7 +81,7 @@ class RecvChanStateStoreMock(
     primaryKeys = ["contactID"],
 )
 data class RecvChanStateDBEntity(
-	val contactID: Long,
+	val contactID: String,
 	val myPublicKey: String,
 	val theirPublicKey: String,
 	val sharedSecret: String,
@@ -75,7 +90,7 @@ data class RecvChanStateDBEntity(
 @Dao
 interface RecvChanStateDao {
 	@Query("SELECT * FROM RecvChanState WHERE contactID = :contactID")
-	suspend fun load(contactID: Long): RecvChanStateDBEntity?
+	suspend fun load(contactID: String): RecvChanStateDBEntity?
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun save(state: RecvChanStateDBEntity)
@@ -86,8 +101,8 @@ class RecvChanStateDBStore(
 	keyStore: PreKeyStore,
 	val dao: RecvChanStateDao,
 	val coroutineScope: CoroutineScope,
-): RevChanStateStore(contacts, keyStore) {
-	override suspend fun load(contactID: Long): RecvChanState {
+): RecvChanStateStore(contacts, keyStore) {
+	override suspend fun load(contactID: String): RecvChanState {
 		val dbEntity = dao.load(contactID)
 		if (dbEntity == null) {
 			return RecvChanState(null, null, null)
@@ -99,7 +114,7 @@ class RecvChanStateDBStore(
 		)
 	}
 
-	override fun launchSave(contactID: Long, newState: RecvChanState) {
+	override fun launchSave(contactID: String, newState: RecvChanState) {
 		coroutineScope.launch {
 			dao.save(
 				RecvChanStateDBEntity(
@@ -114,6 +129,7 @@ class RecvChanStateDBStore(
 }
 
 class RecvChan(
+	val id: String,
 	val myKeyStore: PreKeyStore,
 	val theirSigningKey: PublicSigningKey,
 	val state: PersistentValue<RecvChanState>,
@@ -134,6 +150,7 @@ class RecvChan(
 	}
 
 	suspend fun switchKeys(
+		now: Long,
 		myNewPublicKey: PublicDHKey,
 		theirNewKey: SignedPublicDHKey,
 	) {
@@ -142,17 +159,11 @@ class RecvChan(
 			return
 		}
 
-		val myKeys = myKeyStore.takeKeyPair(myNewPublicKey)
+		val myKeys = myKeyStore.takeKeyPair(now, myNewPublicKey)
 		if (myKeys == null) {
-			// This could happen if the sender couldn't fetch our key
-			// so they are reusing an old one and it's already been taken from the key store
-			val state = this.state.value
-			if (myNewPublicKey != state.myPublicKey || theirNewKey.key != state.theirPublicKey) {
-				// The RechChan got out of sync somehow with the SendChan of the contact
-				// We don't have a shared secret anymore
-				// TODO - report to user?
-				this.state.value = RecvChanState(null, null, null)
-			}
+			// We don't have a shared secret anymore
+			// TODO - report to user?
+			this.state.value = RecvChanState(null, null, null)
 			return
 		}
 

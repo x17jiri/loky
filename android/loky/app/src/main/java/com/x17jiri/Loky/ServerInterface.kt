@@ -52,6 +52,8 @@ data class UserInfo(
 	val publicSigningKey: PublicSigningKey,
 )
 
+data class NeedPrekeys(val value: Boolean)
+
 class ServerInterface(
 	context: Context,
 	val coroutineScope: CoroutineScope,
@@ -152,12 +154,12 @@ class ServerInterface(
 		return __restAPI(url, request, useBearer, Response::class.java)
 	}
 
-	suspend fun login(): Result<Unit> {
+	suspend fun login(): Result<NeedPrekeys> {
 		return withContext(Dispatchers.IO) {
 			// Note: the password hash is not used for security.
 			// It is used so we can limit message size on the server side
 			// without limiting the password size.
-			val cred = profileStore.cred.value
+			val cred = profileStore.cred.first { it.loaded }.value
 			val username = cred.username
 			val passwd = Base64.encode(Crypto.hash(Crypto.strToByteArray(cred.passwd)))
 
@@ -183,6 +185,7 @@ class ServerInterface(
 
 			data class LoginResponse(
 				val bearer: String,
+				val needPrekeys: Boolean,
 			)
 
 			restAPI<LoginRequest, LoginResponse>(
@@ -191,7 +194,7 @@ class ServerInterface(
 				useBearer = false,
 			).mapCatching { resp ->
 				profileStore.setBearer(resp.bearer)
-				Unit
+				NeedPrekeys(resp.needPrekeys)
 			}
 		}
 	}
@@ -250,7 +253,7 @@ class ServerInterface(
 		}
 	}
 
-	suspend fun addPreKeys(): Result<Unit> {
+	suspend fun addPreKeys() {
 		preKeyStore.generate { newKeys ->
 			data class AddPreKeysRequest(
 				val prekeys: List<String>,
@@ -289,9 +292,9 @@ class ServerInterface(
 		loc: Location,
 		contacts: List<SendChan>,
 		forceKeyResend: Boolean = false,
-	): Result<Unit> {
+	): Result<NeedPrekeys> {
 		if (contacts.isEmpty()) {
-			return Result.success(Unit)
+			return Result.success(NeedPrekeys(false))
 		}
 
 		return withContext(Dispatchers.IO) {
@@ -352,19 +355,15 @@ class ServerInterface(
 			restAPI<SendRequest, SendResponse>(
 				"https://$server/api/send",
 				SendRequest(messages)
-			).mapCatching {
-				if (it.needPreKeys) {
-					addPreKeys().getOrThrow()
-				} else {
-					Unit
-				}
+			).mapCatching { resp ->
+				NeedPrekeys(resp.needPreKeys)
 			}
 		}
 	}
 
-	suspend fun recv(contacts: Map<String, RecvChan>): Result<List<Message>> {
+	suspend fun recv(contacts: Map<String, RecvChan>): Result<Pair<List<Message>, NeedPrekeys>> {
 		if (contacts.isEmpty()) {
-			return Result.success(emptyList())
+			return Result.success(Pair(emptyList(), NeedPrekeys(false)))
 		}
 
 		return withContext(Dispatchers.IO) {
@@ -379,15 +378,16 @@ class ServerInterface(
 
 			data class RecvResponse(
 				val items: List<RecvResponseItem>,
+				val needPrekeys: Boolean,
 			)
 
 			val now = monotonicSeconds()
 			restAPI<RecvRequest, RecvResponse>(
 				"https://$server/api/recv",
 				RecvRequest()
-			).mapCatching {
+			).mapCatching { resp ->
 				val messages = mutableListOf<Message>()
-				for (msg in it.items) {
+				for (msg in resp.items) {
 					try {
 						val contact = contacts[msg.from] ?: continue
 						if (msg.type == "k") {
@@ -399,7 +399,7 @@ class ServerInterface(
 							val theirKey = PublicDHKey.fromString(keys[0]).getOrThrow()
 							val theirSig = Signature.fromString(keys[1]).getOrThrow()
 							val myKey = PublicDHKey.fromString(keys[2]).getOrThrow()
-							contact.switchKeys(myKey, SignedPublicDHKey(theirKey, theirSig))
+							contact.switchKeys(now, myKey, SignedPublicDHKey(theirKey, theirSig))
 						} else if (msg.type == "m") {
 							val encrypted = Base64.decode(msg.msg)
 							val decrypted = contact.decrypt(encrypted).getOrThrow()
@@ -417,7 +417,7 @@ class ServerInterface(
 						Log.d("Locodile", "ServerInterface.recv: e=$e")
 					}
 				}
-				messages
+				Pair(messages, NeedPrekeys(resp.needPrekeys))
 			}
 		}
 	}

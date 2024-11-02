@@ -83,11 +83,12 @@ class InboxManager(
 
 class Receiver(
 	val server: ServerInterface,
-	val inboxMan: InboxManager,
+	val inbox: InboxManager,
+	stateStore: RecvChanStateStore,
 	val scope: CoroutineScope
 ) {
 	val data =
-		inboxMan.flow().map { messages ->
+		inbox.flow().map { messages ->
 			val now = monotonicSeconds()
 			val cutoff = now - 7200
 			val newData: HashMap<String, MutableList<Message>> = HashMap()
@@ -102,6 +103,8 @@ class Receiver(
 			newData
 		}.stateIn(scope, SharingStarted.Eagerly, HashMap())
 
+	val contacts = stateStore.flow().stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
 	private var job: Job? = null
 
 	fun start() {
@@ -110,11 +113,17 @@ class Receiver(
 				var time = 0
 				while (isActive) {
 					// clean up every 10 minutes
-					if (time < 10*60) {
-						server.recv().fold(
-							onSuccess = { list ->
+					if (time >= 10*60) {
+						time = 0
+						inbox.launchCleanUp()
+					} else {
+						server.recv(contacts.value).fold(
+							onSuccess = { (list, needPrekeys) ->
+								if (needPrekeys.value) {
+									server.addPreKeys()
+								}
 								if (list.isNotEmpty()) {
-									inboxMan.launchEdit { dao ->
+									inbox.launchEdit { dao ->
 										dao.insertAll(list)
 									}
 								}
@@ -123,9 +132,6 @@ class Receiver(
 								Log.d("Locodile", "Receiver: e=$it")
 							}
 						)
-					} else {
-						time = 0
-						inboxMan.launchCleanUp()
 					}
 					delay(4_000)
 					time += 4

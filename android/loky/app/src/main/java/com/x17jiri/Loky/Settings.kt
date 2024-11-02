@@ -92,7 +92,7 @@ class SettingsDataStoreStore(
 
 	//--
 
-	fun launchEdit(block: suspend (SettingsStore) -> Unit) {
+	override fun launchEdit(block: suspend (SettingsStore) -> Unit) {
 		coroutineScope.launch {
 			block(this@SettingsDataStoreStore)
 		}

@@ -48,6 +48,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import com.x17jiri.Loky.ui.theme.X17LokyTheme
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -130,14 +131,15 @@ class MainActivity: ComponentActivity() {
 		super.onCreate(savedInstanceState)
 		setContent {
 			X17LokyTheme {
-				NavigationGraph(this, lifecycleScope)
+				NavigationGraph(lifecycleScope)
 			}
 		}
 	}
 }
 
 @Composable
-fun NavigationGraph(context: Context, scope: CoroutineScope) {
+fun NavigationGraph(scope: CoroutineScope) {
+	val context = LocalContext.current
 	val model: MainViewModel = viewModel(factory = MainViewModelFactory(context))
 	val navController = rememberNavController()
 	NavHost(navController = navController, startDestination = "loading") {
@@ -147,7 +149,7 @@ fun NavigationGraph(context: Context, scope: CoroutineScope) {
 		composable("login/{message}") {
 			var msg = it.arguments?.getString("message") ?: ""
 			msg = URLDecoder.decode(msg, StandardCharsets.UTF_8.toString())
-			LoginScreen(navController, model, scope, msg)
+			LoginScreen(navController, model, msg)
 		}
 		composable("map") {
 			MapView(navController, model, scope)
@@ -173,12 +175,17 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 		Text("Loading...", fontSize = 24.sp)
 		LaunchedEffect(Unit) {
 			model.inboxMan.launchCleanUp()
-			val cred = model.profileStore.cred.value
+			// TODO - is `cred` already loaded from the data store, or is there a chance it's not?
+			val cred = model.profileStore.cred.first { it.loaded }.value
 			if (cred.username.isNotEmpty() && cred.passwd.isNotEmpty()) {
 				scope.launch(Dispatchers.IO) {
 					model.server.login().fold(
-						onSuccess = {
-							Log.d("Locodile", "storing credentials: ${it}")
+						onSuccess = { needPrekeys ->
+							if (needPrekeys.value) {
+								scope.launch(Dispatchers.IO) {
+									model.server.addPreKeys()
+								}
+							}
 							withContext(Dispatchers.Main) {
 								navController.navigate("map") {
 									popUpTo(navController.graph.startDestinationId) { inclusive = true }
@@ -205,8 +212,8 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 
 @SuppressLint("StateFlowValueCalledInComposition")
 @Composable
-fun LoginScreen(navController: NavController, model: MainViewModel, scope: CoroutineScope, message: String) {
-	val cred = model.profileStore.cred.value
+fun LoginScreen(navController: NavController, model: MainViewModel, message: String) {
+	val cred = model.profileStore.cred.value.value
 	var username by remember { mutableStateOf(cred.username) }
 	var passwd by remember { mutableStateOf(cred.passwd) }
 	var failedDialog by remember { mutableStateOf(message) }
@@ -283,6 +290,7 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 	}
 
 	var showSettings by remember { mutableStateOf(false) }
+	val context = LocalContext.current
 
 	Scaffold(
 		modifier = Modifier
@@ -300,9 +308,9 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 						onCheckedChange = {
 							if (it) {
 								//model.requestIgnoreBatteryOptimization()
-								LocationService.start(model.context)
+								LocationService.start(context)
 							} else {
-								LocationService.stop(model.context)
+								LocationService.stop(context)
 							}
 						},
 						modifier = Modifier.padding(start = 10.dp, end = 10.dp),
@@ -384,12 +392,11 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 			Settings(
 				navController,
 				model,
-				scope,
 				onDismiss = {
 					val newShareFreq = model.settings.shareFreq.value
 					if (LocationService.isRunning.value && newShareFreq.ms != shareFreq.ms) {
-						LocationService.stop(model.context)
-						LocationService.start(model.context)
+						LocationService.stop(context)
+						LocationService.start(context)
 					}
 					showSettings = false
 				}
@@ -416,7 +423,7 @@ fun ScreenHeader(
 			) {
 				IconButton(onClick = { navController.popBackStack() }) {
 					Icon(
-						imageVector = Icons.Default.ArrowBack,
+						imageVector = Icons.AutoMirrored.Filled.ArrowBack,
 						contentDescription = "Back"
 					)
 				}
@@ -714,7 +721,6 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 fun Settings(
 	navController: NavController,
 	model: MainViewModel,
-	scope: CoroutineScope,
 	onDismiss: () -> Unit,
 ) {
 	Dialog(onDismissRequest = onDismiss) {

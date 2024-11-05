@@ -1,0 +1,13 @@
+[Unit]
+Description=x17 Loky server
+After=network.target
+
+[Service]
+ExecStart=/root/go/bin/go run main
+WorkingDirectory=/root/loky/server
+User=root
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+

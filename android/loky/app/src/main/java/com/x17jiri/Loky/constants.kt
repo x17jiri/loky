@@ -3,6 +3,7 @@ package com.x17jiri.Loky
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 
 // How often to send a message with our current keys
 // We send our keys repeatedly because the server may delete old messages,
@@ -18,3 +19,5 @@ val KEY_SWITCH_SEC: Long = KEY_SWITCH_INTERVAL.inWholeSeconds
 val KEY_EXPIRE_DURATION = 20.days
 val KEY_EXPIRE_SEC: Long = KEY_EXPIRE_DURATION.inWholeSeconds
 
+val DATA_EXPIRE_DURATION = 2.hours
+val DATA_EXPIRE_SEC: Long = DATA_EXPIRE_DURATION.inWholeSeconds

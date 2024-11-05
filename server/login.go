@@ -1,55 +1,52 @@
 package main
 
 import (
-	"bytes"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
 )
 
 type LoginRequest struct {
-	Name    string `json:"name"`
-	Passwd  []byte `json:"passwd"`
-	Key     []byte `json:"key"`
-	KeyHash []byte `json:"keyHash"`
+	Username string      `json:"username"`
+	Passwd   Base64Bytes `json:"passwd"`
+	Key      string      `json:"key"`
 
 	Response chan<- LoginResponse `json:"-"`
 }
 
 type LoginResponse struct {
-	Id    int64  `json:"id"`
-	Token []byte `json:"token"`
+	Bearer      Bearer `json:"bearer"`
+	NeedPrekeys bool   `json:"needPrekeys"`
 
 	Err error `json:"-"`
 }
 
 func login_handler(user *User, req LoginRequest) LoginResponse {
-	var token []byte = make([]byte, 16)
-	_, err := rand.Read(token)
+	var err error
+	user.Bearer, err = makeBearer(user.Id)
 	if err != nil {
-		return LoginResponse{
-			Err: err,
-		}
+		return LoginResponse{Err: err}
 	}
 
-	user.Token = token
-	if !bytes.Equal(req.Key, user.Key) {
+	if req.Key != user.Key {
+		// user changed their signing key
 		user.Key = req.Key
-		user.KeyHash = req.KeyHash
+		// all prekeys are signed with the old key, so they are invalid
+		user.Prekeys = user.Prekeys[:0]
+		// TODO - should we clear the inbox?
 		user.Inbox = user.Inbox[:0]
 	}
 
+	// persist the new credentials
 	UpdateCred <- UpdateCredRequest{
-		Id:      user.Id,
-		Token:   user.Token,
-		Key:     user.Key,
-		KeyHash: user.KeyHash,
+		Id:     user.Id,
+		Bearer: user.Bearer,
+		Key:    user.Key,
 	}
 
 	return LoginResponse{
-		Id:    user.Id,
-		Token: token,
+		Bearer:      user.Bearer,
+		NeedPrekeys: user.needPrekeys(),
 	}
 }
 
@@ -70,8 +67,9 @@ func login_http_handler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println("login_handler: req = ", req)
 
-	user := usersList.Load().userByName(req.Name)
+	user := usersList.Load().userByName(req.Username)
 	if user == nil || !user.check_passwd(req.Passwd) {
+		fmt.Println("login_handler: invalid user/password")
 		http.Error(w, "Invalid user/password", http.StatusUnauthorized)
 		return
 	}
@@ -79,21 +77,19 @@ func login_http_handler(w http.ResponseWriter, r *http.Request) {
 	respChan := make(chan LoginResponse)
 	defer close(respChan)
 
-	fmt.Println("login_handler: sending request to login_handler")
 	req.Response = respChan
-	fmt.Println("login_handler: req = ", req)
 	user.Login <- req
-	fmt.Println("login_handler: waiting for response")
 	resp := <-respChan
-	fmt.Println("login_handler: response = ", resp)
 
 	if resp.Err != nil {
+		fmt.Println("login_handler: error:", resp.Err)
 		http.Error(w, resp.Err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	err = json.NewEncoder(w).Encode(resp)
 	if err != nil {
+		fmt.Println("login_handler: error encoding output:", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

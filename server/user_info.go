@@ -1,61 +1,52 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 )
 
+func userInfo_http_handler(w http.ResponseWriter, r *http.Request) {
+	restAPI_handler(w, r, "userInfo", 1024, userInfo_restAPI_handler)
+}
+
 type UserInfoRequest struct {
-	Response chan<- UserInfoResponse
+	Username string `json:"username"`
+
+	Response chan<- UserInfoResponse `json:"-"`
 }
 
 type UserInfoResponse struct {
-	Id int64
+	Id  string `json:"id"`
+	Key string `json:"key"`
+
+	Err *RestAPIError `json:"-"`
 }
 
-func userInfo_handler(user *User) UserInfoResponse {
-	return UserInfoResponse{
-		Id: user.Id,
-	}
-}
-
-type UserInfoHTTPInput struct {
-	Name string `json:"name"`
-}
-
-type UserInfoHTTPOutput struct {
-	Id int64 `json:"id"`
-}
-
-func userInfo_http_handler(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1024)
-
-	var input UserInfoHTTPInput
-	err := json.NewDecoder(r.Body).Decode(&input)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	user := usersList.Load().userByName(input.Name)
+func userInfo_restAPI_handler(user *User, req UserInfoRequest) (UserInfoResponse, *RestAPIError) {
+	// The `user` we've got as a param is the user asking the info,
+	// not the user we're asking about.
+	// So get the right user from the list.
+	user = usersList.Load().userByName(req.Username)
 	if user == nil {
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
+		return UserInfoResponse{}, NewError("User not found", http.StatusNotFound)
 	}
 
 	respChan := make(chan UserInfoResponse)
 	defer close(respChan)
 
-	req := UserInfoRequest{
-		Response: respChan,
-	}
+	req.Response = respChan
+
+	// Writing to this channel will result in a call to the synchronized handler
 	user.UserInfo <- req
 	resp := <-respChan
 
-	err = json.NewEncoder(w).Encode(UserInfoHTTPOutput{
-		Id: resp.Id,
-	})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	return resp, resp.Err
+}
+
+// The synchronized handler is called from `user_handler()` and is synchronized
+// so that only one thread at a time can access the user's data.
+func userInfo_synchronized_handler(user *User) UserInfoResponse {
+	return UserInfoResponse{
+		Id:  user.Id.toString(),
+		Key: user.Key,
 	}
 }

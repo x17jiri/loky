@@ -72,7 +72,7 @@ class InboxManager(
 	fun launchCleanUp() {
 		coroutineScope.launch {
 			val now = monotonicSeconds()
-			val validFrom = now - 7200
+			val validFrom = now - DATA_EXPIRE_SEC
 			val validTo = now + 60
 			__mutex.withLock {
 				__messageDao.cleanUp(validFrom, validTo)
@@ -90,7 +90,7 @@ class Receiver(
 	val data =
 		inbox.flow().map { messages ->
 			val now = monotonicSeconds()
-			val cutoff = now - 7200
+			val cutoff = now - DATA_EXPIRE_SEC
 			val newData: HashMap<String, MutableList<Message>> = HashMap()
 
 			for (msg in messages) {

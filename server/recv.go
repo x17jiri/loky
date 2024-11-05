@@ -7,30 +7,13 @@ import (
 )
 
 type RecvRequest struct {
-	Response chan<- RecvResponse
+	Response chan<- RecvResponse `json:"-"`
 }
 
-type RecvResponse []Message
+type RecvResponse struct {
+	Items []Message `json:"items"`
 
-func recv_handler(user *User, req RecvRequest) RecvResponse {
-	var inbox = user.Inbox
-	user.Inbox = make([]Message, 0)
-	return inbox
-}
-
-type RecvHTTPInput struct {
-	Id    int64  `json:"id"`
-	Token []byte `json:"token"`
-}
-
-type RecvOutput struct {
-	Items []RecvOutputItem `json:"items"`
-}
-
-type RecvOutputItem struct {
-	From       int64  `json:"from"`
-	AgeSeconds int64  `json:"ageSeconds"`
-	Data       string `json:"data"`
+	Err *RestAPIError `json:"-"`
 }
 
 func recv_http_handler(w http.ResponseWriter, r *http.Request) {
@@ -75,4 +58,10 @@ func recv_http_handler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func recv_restAPI_handler(user *User, req RecvRequest) RecvResponse {
+	var inbox = user.Inbox
+	user.Inbox = make([]Message, 0)
+	return inbox
 }

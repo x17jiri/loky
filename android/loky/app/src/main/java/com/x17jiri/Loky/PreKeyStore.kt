@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -53,7 +54,7 @@ data class PreKeyDBEntity(
 @Dao
 interface PreKeyDao {
 	@Query("SELECT * FROM PreKeyStore")
-	fun flow(): Flow<List<PreKeyDBEntity>>
+	suspend fun loadAll(): List<PreKeyDBEntity>
 
 	@Query("DELETE FROM PreKeyStore WHERE usedTime IS NOT NULL AND usedTime < :validFrom")
 	suspend fun delExpired(validFrom: Long): Int
@@ -86,23 +87,34 @@ class PreKeyDBStore(
 	private val keys = mutableMapOf<String, PreKey>()
 	private val keysMutex = Mutex()
 
-	suspend fun init() {
-		keysMutex.withLock {
-			keys.clear()
-			dao.loadAll().forEach { entity ->
-				val publicKey = PublicDHKey.fromString(entity.publicKey).getOrNull()
-				val privateKey = PrivateDHKey.fromString(entity.privateKey).getOrNull()
-				if (publicKey != null && privateKey != null) {
-					keys[entity.publicKey] = PreKey(
-						DHKeyPair(publicKey, privateKey),
-						entity.usedTime,
-					)
+	@Volatile
+	private var initJob: Job?
+
+	init {
+		initJob = coroutineScope.launch {
+			keysMutex.withLock {
+				keys.clear()
+				dao.loadAll().forEach { entity ->
+					val publicKey = PublicDHKey.fromString(entity.publicKey).getOrNull()
+					val privateKey = PrivateDHKey.fromString(entity.privateKey).getOrNull()
+					if (publicKey != null && privateKey != null) {
+						keys[entity.publicKey] = PreKey(
+							DHKeyPair(publicKey, privateKey),
+							entity.usedTime,
+						)
+					}
 				}
 			}
 		}
 	}
 
 	override suspend fun takeKeyPair(now: Long, publicKey: PublicDHKey): DHKeyPair? {
+		val i = initJob
+		if (i != null) {
+			i.join()
+			initJob = null
+		}
+
 		val strKey = publicKey.toString()
 		val data =
 			keysMutex.withLock {
@@ -125,6 +137,12 @@ class PreKeyDBStore(
 	}
 
 	override suspend fun generate(sendToServer: suspend (List<PublicDHKey>) -> Result<Unit>) {
+		val i = initJob
+		if (i != null) {
+			i.join()
+			initJob = null
+		}
+
 		val newPairs = (0 until 10).map { PreKey(DHKeyPair.generate()) }
 		val newList = newPairs.map { it.keyPair.public }
 		val newMap = newPairs.associateBy { it.keyPair.public.toString() }
@@ -145,6 +163,12 @@ class PreKeyDBStore(
 	}
 
 	override suspend fun markLive(liveKeys: List<PublicDHKey>) {
+		val i = initJob
+		if (i != null) {
+			i.join()
+			initJob = null
+		}
+
 		val strKeys = liveKeys.map { it.toString() }.toSet()
 		val now = monotonicSeconds()
 		val validFrom = now - KEY_EXPIRE_SEC

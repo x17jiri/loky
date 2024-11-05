@@ -6,37 +6,37 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sort"
 	"sync/atomic"
 )
 
-type Message struct {
-	From      int64
-	Timestamp int64 // seconds since referenceTime
-	Data      string
-}
+const PREKEY_COUNT = 100
 
 type User struct {
-	Name   string `json:"name"`
-	Salt   []byte `json:"salt"`   // salt for password hashing
-	Passwd []byte `json:"passwd"` // hashed password
+	Username string      `json:"username"`
+	Id       UserID      `json:"id"`     // used instead of username in all operations except login
+	Salt     Base64Bytes `json:"salt"`   // salt for password hashing
+	Passwd   Base64Bytes `json:"passwd"` // hashed password
 
-	Id    int64  `json:"id"`    // used instead of name in all operations except login
-	Token []byte `json:"token"` // used instead of password in all operations except login
+	// TODO - bearer should be verified with signature, we shouldn't store it
+	Bearer Bearer `json:"bearer"`
 
-	Key     []byte `json:"key"`     // public key for encryption
-	KeyHash []byte `json:"keyHash"` // hash of the public key
+	Key string `json:"key"` // public key for signing
 
-	Inbox    []Message            `json:"-"`
+	Prekeys  []string             `json:"prekeys"` // public keys for diffie-hellman key exchange
+	Inbox    Inbox                `json:"-"`
 	Login    chan LoginRequest    `json:"-"`
-	Send     chan SendRequest     `json:"-"`
-	Recv     chan RecvRequest     `json:"-"`
+	Put      chan PutRequest      `json:"-"`
+	Get      chan GetRequest      `json:"-"`
 	UserInfo chan UserInfoRequest `json:"-"`
+}
+
+func (user *User) needPrekeys() bool {
+	return len(user.Prekeys) < PREKEY_COUNT
 }
 
 type Users struct {
 	name_map map[string]*User
-	id_map   map[int64]*User
+	id_map   map[UserID]*User
 	filename string
 }
 
@@ -48,7 +48,7 @@ func (users *Users) userByName(name string) *User {
 	return user
 }
 
-func (users *Users) userById(id int64) *User {
+func (users *Users) userById(id UserID) *User {
 	user, found := users.id_map[id]
 	if !found {
 		return nil
@@ -59,12 +59,12 @@ func (users *Users) userById(id int64) *User {
 func (users *Users) clone() *Users {
 	users_clone := &Users{
 		name_map: make(map[string]*User),
-		id_map:   make(map[int64]*User),
+		id_map:   make(map[UserID]*User),
 		filename: users.filename,
 	}
 	for id, user := range users.id_map {
 		user_copy := *user
-		users_clone.name_map[user.Name] = &user_copy
+		users_clone.name_map[user.Username] = &user_copy
 		users_clone.id_map[id] = &user_copy
 	}
 	return users_clone
@@ -75,7 +75,7 @@ func load_users(filename string) (*Users, error) {
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
 		return &Users{
 			name_map: make(map[string]*User),
-			id_map:   make(map[int64]*User),
+			id_map:   make(map[UserID]*User),
 		}, nil
 	}
 
@@ -100,51 +100,26 @@ func load_users(filename string) (*Users, error) {
 
 	users := &Users{
 		name_map: make(map[string]*User),
-		id_map:   make(map[int64]*User),
+		id_map:   make(map[UserID]*User),
 		filename: filename,
 	}
 	for _, user := range array {
-		_, found := users.name_map[user.Name]
+		_, found := users.name_map[user.Username]
 		if found {
-			return nil, fmt.Errorf("duplicate user name %s", user.Name)
+			return nil, fmt.Errorf("duplicate user name %s", user.Username)
 		}
 		_, found = users.id_map[user.Id]
 		if found {
-			return nil, fmt.Errorf("duplicate user token %d", user.Token)
+			return nil, fmt.Errorf("duplicate user id %d", user.Id)
 		}
-		users.name_map[user.Name] = user
+		users.name_map[user.Username] = user
 		users.id_map[user.Id] = user
 	}
 	return users, nil
 }
 
-func (users *Users) store() error {
-	jsonData, err := func() ([]byte, error) {
-		users_vec := make([]*User, 0, len(users.name_map))
-		for _, user := range users.name_map {
-			users_vec = append(users_vec, user)
-		}
-		sort.Slice(users_vec, func(i, j int) bool {
-			return users_vec[i].Name < users_vec[j].Name
-		})
-
-		return json.MarshalIndent(users_vec, "", "\t")
-	}()
-	if err != nil {
-		return err
-	}
-
-	jsonData = append(jsonData, '\n')
-	err = os.WriteFile(users.filename, jsonData, 0644)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func __gen_unique_id(users *Users) (int64, error) {
-	var id int64
+func __gen_unique_id(users *Users) (UserID, error) {
+	var id UserID
 	var err error
 	var i int
 	for i = 0; i < 10; i++ {
@@ -169,10 +144,10 @@ func __gen_unique_id(users *Users) (int64, error) {
 	return id, nil
 }
 
-func (users *Users) add(name string, passwd []byte) (*User, error) {
-	_, found := users.name_map[name]
+func (users *Users) add(username string, passwd []byte) (*User, error) {
+	_, found := users.name_map[username]
 	if found {
-		return nil, fmt.Errorf("user name %s already exists", name)
+		return nil, fmt.Errorf("user name %s already exists", username)
 	}
 
 	salt, err := __gen_salt(16)
@@ -188,17 +163,17 @@ func (users *Users) add(name string, passwd []byte) (*User, error) {
 	}
 
 	user := &User{
-		Name:   name,
-		Salt:   salt,
-		Passwd: hashed_passwd,
-		Id:     id,
+		Username: username,
+		Salt:     salt,
+		Passwd:   hashed_passwd,
+		Id:       id,
 	}
-	users.name_map[name] = user
+	users.name_map[username] = user
 	users.id_map[id] = user
 
 	err = users.store()
 	if err != nil {
-		delete(users.name_map, name)
+		delete(users.name_map, username)
 		delete(users.id_map, id)
 		return nil, err
 	}
@@ -221,7 +196,7 @@ func user_handler(user *User) {
 		case recv := <-user.Recv:
 			recv.Response <- recv_handler(user, recv)
 		case userInfo := <-user.UserInfo:
-			userInfo.Response <- userInfo_handler(user)
+			userInfo.Response <- userInfo_synchronized_handler(user)
 		}
 	}
 }
@@ -234,15 +209,14 @@ func main() {
 		fmt.Println("Error loading users:", err)
 		return
 	}
-	//users.add("admin", hash("admin"))
-	//users.add("jiri", hash("pwd123"))
-	//users.add("zuzka", hash("pwd456"))
-	//err = users.store()
-	//if err != nil {
-	//	fmt.Println("Error storing users:", err)
-	//	return
-	//}
-	//return
+	users.add("jiri", hash("mboPsxsthqm3Q0oVO2mv"))
+	users.add("zuzka", hash("47OWzjXthHHKOOGjHbdB"))
+	err = users.store()
+	if err != nil {
+		fmt.Println("Error storing users:", err)
+		return
+	}
+	return
 	go persistence(users.clone())
 	usersList.Store(users)
 	for _, user := range users.id_map {

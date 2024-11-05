@@ -178,7 +178,7 @@ class ServerInterface(
 			}
 
 			data class LoginRequest(
-				val name: String,
+				val username: String,
 				val passwd: String,
 				val key: String, // our public signing key
 			)
@@ -305,14 +305,14 @@ class ServerInterface(
 			)
 
 			data class SendRequest(
-				val messages: List<Message>,
+				val items: List<Message>,
 			)
 
 			data class SendResponse(
 				val needPreKeys: Boolean,
 			)
 
-			val messages = mutableListOf<Message>()
+			val items = mutableListOf<Message>()
 
 			val lastKeyResend = lastKeyResend.value
 			val nextKeyResend = lastKeyResend + KEY_RESEND_SEC
@@ -341,20 +341,20 @@ class ServerInterface(
 					val myKeyStr = myKey.key.toString()
 					val mySigStr = myKey.signature.toString()
 					val theirKeyStr = theirKey.toString()
-					messages.add(Message(contact.id, "k", "$myKeyStr,$mySigStr,$theirKeyStr"))
+					items.add(Message(contact.id, "k", "$myKeyStr,$mySigStr,$theirKeyStr"))
 				}
 			}
 
 			val msg = loc.latitude.toString() + "," + loc.longitude.toString()
 			for (contact in contacts) {
 				contact.encrypt(msg).onSuccess { encrypted ->
-					messages.add(Message(contact.id, "m", "${Base64.encode(encrypted)}"))
+					items.add(Message(contact.id, "m", "${Base64.encode(encrypted)}"))
 				}
 			}
 
 			restAPI<SendRequest, SendResponse>(
 				"https://$server/api/send",
-				SendRequest(messages)
+				SendRequest(items)
 			).mapCatching { resp ->
 				NeedPrekeys(resp.needPreKeys)
 			}
@@ -370,9 +370,9 @@ class ServerInterface(
 			class RecvRequest {}
 
 			data class RecvResponseItem(
+				val ageSec: Long,
 				val from: String,
 				val type: String,
-				val ageSec: Long,
 				val msg: String,
 			)
 

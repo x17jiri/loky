@@ -9,13 +9,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 	"unsafe"
-
-	"golang.org/x/crypto/pbkdf2"
 )
 
 // 2000-01-01 00:00:00 UTC
@@ -71,14 +68,6 @@ func __gen_id() (UserID, error) {
 		return 0, err
 	}
 	return UserID(binary.LittleEndian.Uint64(idBytes[:])), nil
-}
-
-func __hash_passwd(password []byte, salt []byte) []byte {
-	return pbkdf2.Key(password, salt, 16, 32, sha256.New)
-}
-
-func configPath(filename string) string {
-	return filepath.Join(".", filename)
 }
 
 func hash(input string) []byte {

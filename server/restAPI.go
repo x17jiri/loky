@@ -58,7 +58,7 @@ func restAPI_handler[
 	}
 
 	user := usersList.Load().userById(userId)
-	if user == nil || user.Bearer != bearer {
+	if user == nil || bearer == "" || user.Bearer != bearer {
 		msg := handlerName + ": authorization: invalid bearer"
 		restAPIerror(w, NewError(msg, http.StatusUnauthorized))
 		return

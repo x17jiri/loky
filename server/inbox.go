@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -20,6 +21,13 @@ type Message struct {
 type Inbox struct {
 	User  *User
 	Parts []InboxPart
+}
+
+func newInbox(user *User) Inbox {
+	return Inbox{
+		User:  user,
+		Parts: make([]InboxPart, 0),
+	}
 }
 
 func (inbox *Inbox) removeExpiredParts(now int64) {
@@ -79,7 +87,7 @@ func (inbox *Inbox) addMessage(msg *Message) *RestAPIError {
 	}
 	defer f.Close()
 
-	_, err = f.WriteString(fmt.Sprintf("%d %s %s %s\n", msg.Time, msg.From, msg.Type, msg.Data))
+	_, err = f.WriteString(fmt.Sprintf("%d %s %s %s\n", msg.Time, msg.From, msg.Type, msg.Msg))
 	if err != nil {
 		return NewError("writing to file: "+err.Error(), http.StatusInternalServerError)
 	}
@@ -115,7 +123,9 @@ func (part *InboxPart) getMessages(now int64, messages []Message) []Message {
 func (inbox *Inbox) getMessages(now int64) ([]Message, *RestAPIError) {
 	var messages []Message
 	for i, part := range inbox.Parts {
-		messages = part.getMessages(now, messages)
+		if part.canUse(now) {
+			messages = part.getMessages(now, messages)
+		}
 		_ = os.Remove(part.File)
 		inbox.Parts[i] = InboxPart{}
 	}
@@ -148,14 +158,33 @@ func (p *InboxPart) canContainUnexpiredMessages(now int64) bool {
 	return p.usableRange().overlaps(validRange)
 }
 
-func inboxDirPath(userId UserID) string {
-	return filepath.Join("inbox", userId.toString())
-}
-
-func (user *User) inboxDir() string {
-	return inboxDirPath(user.Id)
-}
-
 func inboxFile(dir string, time int64) string {
 	return filepath.Join(dir, fmt.Sprintf("%019d", time))
+}
+
+func (user *User) loadInbox() error {
+	inboxDir := user.inboxDir()
+	if err := os.MkdirAll(inboxDir, 0755); err != nil {
+		return err
+	}
+
+	files, err := filepath.Glob(filepath.Join(inboxDir, "*"))
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		timestampStr := filepath.Base(file)
+		timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		user.Inbox.Parts = append(user.Inbox.Parts, InboxPart{
+			FirstMessageTimestamp: timestamp,
+			File:                  file,
+		})
+	}
+
+	return nil
 }

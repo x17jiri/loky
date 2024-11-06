@@ -18,50 +18,18 @@ type LoginResponse struct {
 	Bearer      Bearer `json:"bearer"`
 	NeedPrekeys bool   `json:"needPrekeys"`
 
-	Err error `json:"-"`
-}
-
-func login_handler(user *User, req LoginRequest) LoginResponse {
-	var err error
-	user.Bearer, err = makeBearer(user.Id)
-	if err != nil {
-		return LoginResponse{Err: err}
-	}
-
-	if req.Key != user.Key {
-		// user changed their signing key
-		user.Key = req.Key
-		// all prekeys are signed with the old key, so they are invalid
-		user.Prekeys = user.Prekeys[:0]
-		// TODO - should we clear the inbox?
-		user.Inbox = user.Inbox[:0]
-	}
-
-	// persist the new credentials
-	UpdateCred <- UpdateCredRequest{
-		Id:     user.Id,
-		Bearer: user.Bearer,
-		Key:    user.Key,
-	}
-
-	return LoginResponse{
-		Bearer:      user.Bearer,
-		NeedPrekeys: user.needPrekeys(),
-	}
+	Err *RestAPIError `json:"-"`
 }
 
 func login_http_handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("login_handler")
-	r.Body = http.MaxBytesReader(w, r.Body, 16384)
-
-	//	bodyBytes, _ := io.ReadAll(r.Body)
-	//	fmt.Println("login_handler: body = ", string(bodyBytes))
+	r.Body = http.MaxBytesReader(w, r.Body, 2048)
 
 	var req LoginRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		fmt.Println("login_handler: error decoding input:", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		msg := "login: error decoding input: " + err.Error()
+		restAPIerror(w, NewError(msg, http.StatusBadRequest))
 		return
 	}
 
@@ -69,8 +37,8 @@ func login_http_handler(w http.ResponseWriter, r *http.Request) {
 
 	user := usersList.Load().userByName(req.Username)
 	if user == nil || !user.check_passwd(req.Passwd) {
-		fmt.Println("login_handler: invalid user/password")
-		http.Error(w, "Invalid user/password", http.StatusUnauthorized)
+		msg := "login: invalid user/password"
+		restAPIerror(w, NewError(msg, http.StatusUnauthorized))
 		return
 	}
 
@@ -82,14 +50,40 @@ func login_http_handler(w http.ResponseWriter, r *http.Request) {
 	resp := <-respChan
 
 	if resp.Err != nil {
-		fmt.Println("login_handler: error:", resp.Err)
-		http.Error(w, resp.Err.Error(), http.StatusInternalServerError)
+		msg := "login: error:" + resp.Err.Error()
+		restAPIerror(w, NewError(msg, http.StatusInternalServerError))
 		return
 	}
 
 	err = json.NewEncoder(w).Encode(resp)
 	if err != nil {
-		fmt.Println("login_handler: error encoding output:", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		msg := "login: error encoding response: " + err.Error()
+		restAPIerror(w, NewError(msg, http.StatusInternalServerError))
+	}
+}
+
+func login_synchronized_handler(user *User, req LoginRequest) LoginResponse {
+	var err error
+	user.Bearer, err = makeBearer(user.Id)
+	if err != nil {
+		return LoginResponse{
+			Err: NewError("login: creating bearer", http.StatusInternalServerError),
+		}
+	}
+
+	if req.Key != user.Key {
+		// user changed their signing key
+		user.Key = req.Key
+		// all prekeys are signed with the old key, so they are invalid
+		user.Prekeys = user.Prekeys[:0]
+		// TODO - should we clear the inbox?
+	}
+
+	// persist the new credentials
+	user.save_user()
+
+	return LoginResponse{
+		Bearer:      user.Bearer,
+		NeedPrekeys: user.needPrekeys(),
 	}
 }

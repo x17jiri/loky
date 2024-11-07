@@ -6,13 +6,14 @@ import (
 )
 
 const PREKEY_COUNT = 100
+const PREKEY_MAX_COUNT = 2 * PREKEY_COUNT
 
 func appPath() string {
 	return "."
 }
 
 func main() {
-	if true {
+	if false {
 		list := []struct {
 			username string
 			passwd   string
@@ -47,6 +48,8 @@ func main() {
 	http.HandleFunc("/api/send", send_http_handler)
 	http.HandleFunc("/api/recv", recv_http_handler)
 	http.HandleFunc("/api/userInfo", userInfo_http_handler)
+	http.HandleFunc("/api/fetchPrekeys", fetchPrekeys_http_handler)
+	http.HandleFunc("/api/addPrekeys", addPrekeys_http_handler)
 
 	fmt.Println("Starting server at http://localhost:11443")
 

@@ -166,11 +166,29 @@ func (bearer Bearer) toUserID() (UserID, error) {
 	return userIDFromString(parts[0])
 }
 
-func findFirst[T any](slice []T, predicate func(T) bool) int {
+func find_first[T any](slice []T, predicate func(T) bool) int {
 	for i, v := range slice {
 		if predicate(v) {
 			return i
 		}
 	}
 	return len(slice) // Return length if no item satisfies the predicate
+}
+
+func shift[T any](slice []T, n int) []T {
+	L := len(slice)
+	if n > L {
+		n = L
+	}
+
+	if n <= 0 {
+		return slice
+	}
+
+	copy(slice, slice[n:])
+	var empty T
+	for i := L - n; i < L; i++ {
+		slice[i] = empty
+	}
+	return slice[:L-n]
 }

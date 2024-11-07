@@ -32,7 +32,7 @@ func newInbox(user *User) Inbox {
 
 func (inbox *Inbox) removeExpiredParts(now int64) {
 	// Note that inbox parts are sorted by their start time
-	firstNotExpired := findFirst(
+	firstNotExpired := find_first(
 		inbox.Parts,
 		func(p InboxPart) bool { return p.canContainUnexpiredMessages(now) },
 	)
@@ -40,13 +40,7 @@ func (inbox *Inbox) removeExpiredParts(now int64) {
 		// Ignoring errors here. Not sure I can do anything about them.
 		_ = os.Remove(inbox.Parts[i].File)
 	}
-	partCnt := len(inbox.Parts)
-	notExpiredCnt := partCnt - firstNotExpired
-	copy(inbox.Parts[:notExpiredCnt], inbox.Parts[firstNotExpired:])
-	for i := notExpiredCnt; i < partCnt; i++ {
-		inbox.Parts[i] = InboxPart{}
-	}
-	inbox.Parts = inbox.Parts[:notExpiredCnt]
+	inbox.Parts = shift(inbox.Parts, firstNotExpired)
 }
 
 func (inbox *Inbox) addPart(now int64) *InboxPart {

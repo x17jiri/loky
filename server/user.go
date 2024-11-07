@@ -20,12 +20,14 @@ type User struct {
 
 	Key string `json:"key"` // public key for signing
 
-	Prekeys  []string             `json:"prekeys"` // public keys for diffie-hellman key exchange
-	Inbox    Inbox                `json:"-"`
-	Login    chan LoginRequest    `json:"-"`
-	Put      chan PutRequest      `json:"-"`
-	Recv     chan RecvRequest     `json:"-"`
-	UserInfo chan UserInfoRequest `json:"-"`
+	Prekeys     []string                `json:"prekeys"` // public keys for diffie-hellman key exchange
+	Inbox       Inbox                   `json:"-"`
+	Login       chan LoginRequest       `json:"-"`
+	Put         chan PutRequest         `json:"-"`
+	Recv        chan RecvRequest        `json:"-"`
+	UserInfo    chan UserInfoRequest    `json:"-"`
+	FetchPrekey chan FetchPrekeyRequest `json:"-"`
+	AddPrekeys  chan AddPrekeysRequest  `json:"-"`
 }
 
 func (user *User) needPrekeys() bool {
@@ -43,6 +45,10 @@ func user_handler(user *User) {
 			recv.Response <- recv_synchronized_handler(user)
 		case userInfo := <-user.UserInfo:
 			userInfo.Response <- userInfo_synchronized_handler(user)
+		case fetchPrekey := <-user.FetchPrekey:
+			fetchPrekey.Response <- fetchPrekey_synchronized_handler(user, fetchPrekey)
+		case addPrekeys := <-user.AddPrekeys:
+			addPrekeys.Response <- addPrekeys_synchronized_handler(user, addPrekeys)
 		}
 	}
 }
@@ -129,6 +135,8 @@ func load_user(id UserID, dir string) (*User, error) {
 	user.Put = make(chan PutRequest)
 	user.Recv = make(chan RecvRequest)
 	user.UserInfo = make(chan UserInfoRequest)
+	user.FetchPrekey = make(chan FetchPrekeyRequest)
+	user.AddPrekeys = make(chan AddPrekeysRequest)
 	return user, nil
 }
 
@@ -243,12 +251,14 @@ func addUser(users *Users, username string, passwd []byte) (*Users, error) {
 
 		Key: "",
 
-		Prekeys:  make([]string, 0),
-		Inbox:    Inbox{},
-		Login:    make(chan LoginRequest),
-		Put:      make(chan PutRequest),
-		Recv:     make(chan RecvRequest),
-		UserInfo: make(chan UserInfoRequest),
+		Prekeys:     make([]string, 0),
+		Inbox:       Inbox{},
+		Login:       make(chan LoginRequest),
+		Put:         make(chan PutRequest),
+		Recv:        make(chan RecvRequest),
+		UserInfo:    make(chan UserInfoRequest),
+		FetchPrekey: make(chan FetchPrekeyRequest),
+		AddPrekeys:  make(chan AddPrekeysRequest),
 	}
 	user.Inbox = newInbox(user)
 

@@ -88,6 +88,7 @@ import androidx.core.content.ContextCompat.startForegroundService
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -173,39 +174,39 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 		contentAlignment = Alignment.Center
 	) {
 		Text("Loading...", fontSize = 24.sp)
-		LaunchedEffect(Unit) {
-			model.inboxMan.launchCleanUp()
-			// TODO - is `cred` already loaded from the data store, or is there a chance it's not?
-			val cred = model.profileStore.cred.first { it.loaded }.value
-			if (cred.username.isNotEmpty() && cred.passwd.isNotEmpty()) {
-				scope.launch(Dispatchers.IO) {
-					model.server.login().fold(
-						onSuccess = { needPrekeys ->
-							if (needPrekeys.value) {
-								scope.launch(Dispatchers.IO) {
-									model.server.addPreKeys()
-								}
-							}
-							withContext(Dispatchers.Main) {
-								navController.navigate("map") {
-									popUpTo(navController.graph.startDestinationId) { inclusive = true }
-								}
-							}
-						},
-						onFailure = {
-							Log.d("Locodile", "LoadingScreen: login failed: ${it.message}")
-							withContext(Dispatchers.Main) {
-								var msg = it.toString()
-								msg = URLEncoder.encode(msg, StandardCharsets.UTF_8.toString())
-								navController.navigate("login/${msg}")
+	}
+	val context = LocalContext.current
+	LaunchedEffect(Unit) {
+		context.init_singletons()
+		model.inboxMan.launchCleanUp()
+		val cred = model.profileStore.cred.value
+		if (cred.username.isNotEmpty() && cred.passwd.isNotEmpty()) {
+			scope.launch(Dispatchers.IO) {
+				model.server.login().fold(
+					onSuccess = { needPrekeys ->
+						if (needPrekeys.value) {
+							scope.launch(Dispatchers.IO) {
+								model.server.addPreKeys()
 							}
 						}
-					)
-				}
-			} else {
-				Log.d("Locodile", "LoadingScreen: LaunchedEffect.5")
-				navController.navigate("login/")
+						withContext(Dispatchers.Main) {
+							navController.navigate("map") {
+								popUpTo(navController.graph.startDestinationId) { inclusive = true }
+							}
+						}
+					},
+					onFailure = {
+						Log.d("Locodile", "LoadingScreen: login failed: ${it.message}")
+						withContext(Dispatchers.Main) {
+							var msg = it.toString()
+							msg = URLEncoder.encode(msg, StandardCharsets.UTF_8.toString())
+							navController.navigate("login/${msg}")
+						}
+					}
+				)
 			}
+		} else {
+			navController.navigate("login/")
 		}
 	}
 }
@@ -213,7 +214,7 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 @SuppressLint("StateFlowValueCalledInComposition")
 @Composable
 fun LoginScreen(navController: NavController, model: MainViewModel, message: String) {
-	val cred = model.profileStore.cred.value.value
+	val cred = model.profileStore.cred.value
 	var username by remember { mutableStateOf(cred.username) }
 	var passwd by remember { mutableStateOf(cred.passwd) }
 	var failedDialog by remember { mutableStateOf(message) }
@@ -280,11 +281,12 @@ fun LoginScreen(navController: NavController, model: MainViewModel, message: Str
 	}
 }
 
+@SuppressLint("StateFlowValueCalledInComposition")
 @Composable
 fun MapView(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
-	DisposableEffect(Unit) {
+	LifecycleResumeEffect(Unit) {
 		model.receiver.start()
-		onDispose {
+		onPauseOrDispose {
 			model.receiver.stop()
 		}
 	}

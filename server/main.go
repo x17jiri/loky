@@ -35,9 +35,12 @@ func main() {
 	}
 
 	users, err := load_users()
-	if err != nil {
+	if err != nil || users == nil {
 		fmt.Println("Error loading users:", err)
 		return
+	}
+	if len(users.id_map) == 0 {
+		fmt.Println("Warning: no users loaded")
 	}
 	usersList.Store(users)
 	for _, user := range users.id_map {

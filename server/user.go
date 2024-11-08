@@ -5,8 +5,61 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync/atomic"
 )
+
+type UserID uint64
+
+func (id UserID) toString() string {
+	part1 := (id >> 48) & 0xffff
+	part2 := (id >> 32) & 0xffff
+	part3 := (id >> 16) & 0xffff
+	part4 := id & 0xffff
+	return fmt.Sprintf("%04x_%04x_%04x_%04x", part1, part2, part3, part4)
+}
+
+func userIDFromString(s string) (UserID, error) {
+	parts := strings.Split(s, "_")
+	if len(parts) != 4 {
+		return 0, fmt.Errorf("invalid UserID string: %s", s)
+	}
+
+	var id uint64 = 0
+	for _, part := range parts {
+		if len(part) != 4 {
+			return 0, fmt.Errorf("invalid UserID string: %s", s)
+		}
+
+		val, err := strconv.ParseUint(part, 16, 16)
+		if err != nil {
+			return 0, err
+		}
+
+		id = (id << 16) | val
+	}
+	return UserID(id), nil
+}
+
+func (id UserID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.toString())
+}
+
+func (id *UserID) UnmarshalJSON(data []byte) error {
+	var idStr string
+	if err := json.Unmarshal(data, &idStr); err != nil {
+		return err
+	}
+
+	parsedID, err := userIDFromString(idStr)
+	if err != nil {
+		return err
+	}
+
+	*id = parsedID
+	return nil
+}
 
 type User struct {
 	Id UserID `json:"-"` // used instead of username in all operations except login
@@ -178,14 +231,17 @@ func load_users() (*Users, error) {
 			fmt.Println("load_users(): Invalid user ID: ", dir.Name())
 			continue
 		}
-		userDir := filepath.Join(topdir, dir.Name())
-		if userDir != id.toString() {
+		if dir.Name() != id.toString() {
 			// This could happen if our user ID encoding uses lower case letters for hex digits
 			// and someone names the dir with upper case letters.
 			// On case-sensitive filesystems, this would be a problem.
-			fmt.Println("load_users(): Invalid user ID encoding: ", dir.Name())
+			fmt.Println(
+				"load_users(): Invalid user ID encoding: '" +
+					dir.Name() + "', expected: '" + id.toString() + "'",
+			)
 			continue
 		}
+		userDir := filepath.Join(topdir, dir.Name())
 		user, err := load_user(id, userDir)
 		if err != nil {
 			fmt.Println("load_users(): Error loading user: ", err)
@@ -193,6 +249,8 @@ func load_users() (*Users, error) {
 		}
 		users.name_map[user.Username] = user
 		users.id_map[id] = user
+
+		fmt.Println("User loaded: ", user.Username, ", ID: ", id.toString())
 	}
 	return users, nil
 }

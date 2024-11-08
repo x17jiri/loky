@@ -1,5 +1,6 @@
 package com.x17jiri.Loky
 
+import android.util.Log
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Insert
@@ -9,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,17 +38,22 @@ abstract class SendChanStateStore(
 	fun flow(): Flow<List<SendChan>> {
 		return contacts.flow()
 			.map { newContactList ->
+				Log.d("Locodile **********", "map 111: newContactList: $newContactList")
 				newContactList
 					.filter { contact -> contact.send }
 					// sort by id so we can easily compare the list to the old one
 					.sortedBy { it.id }
 			}
 			.distinctUntilChanged { old, new ->
+				Log.d("Locodile **********", "old: $old")
+				Log.d("Locodile **********", "new: $new")
+				Log.d("Locodile **********", "same: ${old.map { it.id } == new.map { it.id }}")
 				// if all the ids are the same, we don't need to create new state objects
 				old.map { it.id } == new.map { it.id }
 			}
 			.map { newContactList ->
-				mutex.withLock {
+				Log.d("Locodile **********", "map 222: newContactList: $newContactList")
+				val result = mutex.withLock {
 					val mySigningKeys = profile.signingKeys.value.keyPair
 					if (mySigningKeys == null) {
 						return@withLock emptyList()
@@ -64,6 +71,8 @@ abstract class SendChanStateStore(
 							SendChan(contactID, mySigningKeys, contact.publicSigningKey, state)
 						}
 				}
+				Log.d("Locodile **********", "map 333: result: $result")
+				result
 			}
 	}
 }
@@ -185,6 +194,7 @@ class SendChan(
 
 	fun shouldChangeKeys(now: Long): Boolean {
 		val state = this.state.value
+		Log.d("Locodile **********", "shouldChangeKeys: state: $state")
 		// In this range, our key is considered fresh, i.e., we don't try to change it
 		val freshFrom = state.keySwitchTime
 		val freshTo = freshFrom + KEY_SWITCH_SEC
@@ -192,10 +202,13 @@ class SendChan(
 	}
 
 	suspend fun changeKeys(now: Long, theirNewKey: SignedPublicDHKey?) {
+		Log.d("Locodile **********", "changeKeys: theirNewKey: $theirNewKey")
 		if (theirNewKey != null && theirNewKey.verifySignature(theirSigningKey)) {
 			// We managed to fetch a valid new key from the other side
 			val myNewKeys = DHKeyPair.generate()
 			val sharedSecret = Crypto.deriveSharedKey(myNewKeys.private, theirNewKey.key)
+			Log.d("Locodile **********", "changeKeys: myNewKeys: $myNewKeys")
+			Log.d("Locodile **********", "changeKeys: sharedSecret: $sharedSecret")
 			this.state.value =
 				SendChanState(
 					myKeys = myNewKeys,

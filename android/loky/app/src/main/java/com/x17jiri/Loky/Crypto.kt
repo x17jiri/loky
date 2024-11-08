@@ -30,11 +30,8 @@ class PublicECKey(val key: PublicKey) {
 		}
 
 		fun fromString(key: String): Result<PublicECKey> {
-			try {
-				val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
-				return fromBytes(Base64.decode(k))
-			} catch (e: Exception) {
-				return Result.failure(e)
+			return Crypto.extractFromStr(key, PREFIX, SUFFIX).mapCatching { k ->
+				fromBytes(Base64.decode(k)).getOrThrow()
 			}
 		}
 	}
@@ -64,11 +61,8 @@ class PrivateECKey(val key: PrivateKey) {
 		}
 
 		fun fromString(key: String): Result<PrivateECKey> {
-			try {
-				val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
-				return fromBytes(Base64.decode(k))
-			} catch (e: Exception) {
-				return Result.failure(e)
+			return Crypto.extractFromStr(key, PREFIX, SUFFIX).mapCatching { k ->
+				fromBytes(Base64.decode(k)).getOrThrow()
 			}
 		}
 	}
@@ -107,11 +101,8 @@ class Signature(val encoded: ByteArray) {
 		}
 
 		fun fromString(str: String): Result<Signature> {
-			try {
-				val s = Crypto.extractFromStr(str, PREFIX, SUFFIX)
-				return Result.success(Signature(Base64.decode(s)))
-			} catch (e: Exception) {
-				return Result.failure(e)
+			return Crypto.extractFromStr(str, PREFIX, SUFFIX).mapCatching { s ->
+				Signature(Base64.decode(s))
 			}
 		}
 	}
@@ -131,8 +122,9 @@ class PublicSigningKey(val key: PublicECKey) {
 		}
 
 		fun fromString(key: String): Result<PublicSigningKey> {
-			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
-			return PublicECKey.fromString(k).map { PublicSigningKey(it) }
+			return Crypto.extractFromStr(key, PREFIX, SUFFIX).mapCatching { k ->
+				PublicECKey.fromString(k).mapCatching { PublicSigningKey(it) }.getOrThrow()
+			}
 		}
 	}
 
@@ -155,8 +147,9 @@ class PrivateSigningKey(val key: PrivateECKey) {
 		}
 
 		fun fromString(key: String): Result<PrivateSigningKey> {
-			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
-			return PrivateECKey.fromString(k).map { PrivateSigningKey(it) }
+			return Crypto.extractFromStr(key, PREFIX, SUFFIX).mapCatching { k ->
+				PrivateECKey.fromString(k).mapCatching { PrivateSigningKey(it) }.getOrThrow()
+			}
 		}
 	}
 
@@ -191,8 +184,9 @@ class PublicDHKey(val key: PublicECKey) {
 		}
 
 		fun fromString(key: String): Result<PublicDHKey> {
-			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
-			return PublicECKey.fromString(k).map { PublicDHKey(it) }
+			return Crypto.extractFromStr(key, PREFIX, SUFFIX).mapCatching { k ->
+				PublicECKey.fromString(k).mapCatching { PublicDHKey(it) }.getOrThrow()
+			}
 		}
 	}
 
@@ -220,8 +214,9 @@ class PrivateDHKey(val key: PrivateECKey) {
 		}
 
 		fun fromString(key: String): Result<PrivateDHKey> {
-			val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
-			return PrivateECKey.fromString(k).map { PrivateDHKey(it) }
+			return Crypto.extractFromStr(key, PREFIX, SUFFIX).mapCatching { k ->
+				PrivateECKey.fromString(k).mapCatching { PrivateDHKey(it) }.getOrThrow()
+			}
 		}
 	}
 
@@ -267,11 +262,8 @@ class SecretKey(val key: javax.crypto.SecretKey) {
 		}
 
 		fun fromString(key: String): Result<SecretKey> {
-			try {
-				val k = Crypto.extractFromStr(key, PREFIX, SUFFIX)
-				return fromBytes(Base64.decode(k))
-			} catch (e: Exception) {
-				return Result.failure(e)
+			return Crypto.extractFromStr(key, PREFIX, SUFFIX).mapCatching { k ->
+				fromBytes(Base64.decode(k)).getOrThrow()
 			}
 		}
 
@@ -310,16 +302,16 @@ class Crypto {
 			return String(bytes, Charsets.UTF_8)
 		}
 
-		fun extractFromStr(str: String, prefix: String, suffix: String): String {
+		fun extractFromStr(str: String, prefix: String, suffix: String): Result<String> {
 			val hasPrefix = str.startsWith(prefix)
 			if (!hasPrefix) {
-				throw Exception("Prefix '$prefix' not found")
+				return Result.failure(Exception("Prefix '$prefix' not found"))
 			}
 			val hasSuffix = str.endsWith(suffix)
 			if (!hasSuffix) {
-				throw Exception("Suffix '$suffix' not found")
+				return Result.failure(Exception("Suffix '$suffix' not found"))
 			}
-			return str.substring(prefix.length, str.length - suffix.length)
+			return Result.success(str.substring(prefix.length, str.length - suffix.length))
 		}
 
 		fun hash(input: ByteArray): ByteArray {

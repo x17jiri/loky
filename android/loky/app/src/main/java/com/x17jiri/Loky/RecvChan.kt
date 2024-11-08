@@ -1,5 +1,6 @@
 package com.x17jiri.Loky
 
+import android.util.Log
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Insert
@@ -154,13 +155,16 @@ class RecvChan(
 		myNewPublicKey: PublicDHKey,
 		theirNewKey: SignedPublicDHKey,
 	) {
+		Log.d("Locodile **********", "switchKeys: myNewPublicKey: $myNewPublicKey")
 		if (!theirNewKey.verifySignature(theirSigningKey)) {
+			Log.d("Locodile **********", "switchKeys: invalid signature")
 			// TODO - invalid signature - report to user?
 			return
 		}
 
 		val myKeys = myKeyStore.takeKeyPair(now, myNewPublicKey)
 		if (myKeys == null) {
+			Log.d("Locodile **********", "switchKeys: no key pair")
 			// We don't have a shared secret anymore
 			// TODO - report to user?
 			this.state.value = RecvChanState(null, null, null)
@@ -168,6 +172,7 @@ class RecvChan(
 		}
 
 		val newSharedSecret = Crypto.deriveSharedKey(myKeys.private, theirNewKey.key)
+		Log.d("Locodile **********", "switchKeys: newSharedSecret: $newSharedSecret")
 
 		this.state.value = RecvChanState(myKeys.public, theirNewKey.key, newSharedSecret)
 	}

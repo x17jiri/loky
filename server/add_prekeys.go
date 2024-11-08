@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 )
 
@@ -36,11 +37,17 @@ func addPrekeys_synchronized_handler(user *User, req AddPrekeysRequest) AddPreke
 	if len(user.Prekeys)+len(req.Prekeys) > PREKEY_MAX_COUNT {
 		return AddPrekeysResponse{
 			LivePrekeys: user.Prekeys,
-			Err:         NewError("Too many prekeys", http.StatusBadRequest),
+			Err:         nil,
 		}
 	}
 
+	fmt.Println("Current prekeys:", user.Prekeys)
+	fmt.Println("Adding prekeys:", req.Prekeys)
+
 	user.Prekeys = append(user.Prekeys, req.Prekeys...)
+
+	fmt.Println("New prekeys:", user.Prekeys)
+
 	_ = user.save_user()
 
 	return AddPrekeysResponse{

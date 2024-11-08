@@ -117,8 +117,10 @@ class Receiver(
 						time = 0
 						inbox.launchCleanUp()
 					} else {
+						Log.d("Locodile", "recv BEFORE **")
 						server.recv(contacts.value).fold(
 							onSuccess = { (list, needPrekeys) ->
+								Log.d("Locodile", "recv onSuccess")
 								if (needPrekeys.value) {
 									server.addPreKeys()
 								}
@@ -129,7 +131,9 @@ class Receiver(
 								}
 							},
 							onFailure = {
+								Log.d("Locodile", "recv onFailure")
 								Log.d("Locodile", "Receiver: e=$it")
+								Log.d("Locodile", "Receiver: e=${it.stackTraceToString()}")
 							}
 						)
 					}

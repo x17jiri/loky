@@ -38,7 +38,8 @@ func restAPI_handler[
 	maxRequestSize int64,
 	handler func(*User, Request) (Response, *RestAPIError),
 ) {
-	fmt.Println(handlerName)
+	fmt.Println("=================================================================================")
+	fmt.Println(monotonicSeconds(), handlerName)
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
 
 	authHeader := r.Header.Get("Authorization")

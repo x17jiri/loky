@@ -9,14 +9,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-class SharingFrequency(val _seconds: Double = 15.0) {
-	val seconds = max(5.0, min(180.0, _seconds))
+class SharingFrequency(seconds: Double = 15.0) {
+	val seconds = max(5.0, min(180.0, seconds))
 	val secondsMin: Double get() = 0.9 * seconds
 	val secondsMax: Double get() = 1.1 * seconds
 
@@ -29,70 +32,73 @@ interface SettingsStore {
 	val shareFreq: StateFlow<SharingFrequency>
 	val lastKeyResend: StateFlow<Long>
 
-	fun setShareFreq(freq: SharingFrequency)
-	suspend fun setLastKeyResend(time: Long)
+	suspend fun init()
 
-	fun launchEdit(block: suspend (SettingsStore) -> Unit)
+	fun launchEdit(block: suspend (dao: SettingsStoreDao) -> Unit)
+}
+
+interface SettingsStoreDao {
+	suspend fun setShareFreq(freq: SharingFrequency)
+	suspend fun setLastKeyResend(time: Long)
 }
 
 class SettingsDataStoreStore(
 	val __dataStore: DataStore<Preferences>,
 	val coroutineScope: CoroutineScope,
-): SettingsStore {
+): SettingsStore, SettingsStoreDao {
 	companion object {
 		val __shareFreqKey: Preferences.Key<String> = stringPreferencesKey("settings.shareFreq")
 
 		val __lastKeyResendKey: Preferences.Key<String> = stringPreferencesKey("key.lastSwitch")
 	}
 
-	//-- shareFreq: SharingFrequency
+	val __shareFreq = MutableStateFlow(SharingFrequency())
+	val __lastKeyResend = MutableStateFlow(0L)
 
-	fun extractShareFreq(p: Preferences): SharingFrequency {
-		val ms = p[__shareFreqKey]?.toIntOrNull()
-		return if (ms != null) { SharingFrequency(ms.toDouble() / 1000.0) } else { SharingFrequency() }
-	}
+	override val shareFreq = __shareFreq
+	override val lastKeyResend = __lastKeyResend
 
-	fun shareFreqFlow(): Flow<SharingFrequency> {
-		return __dataStore.data.map { data -> extractShareFreq(data) }
-	}
+	val __mutex = Mutex()
+	var __initialized = false
 
-	override val shareFreq = shareFreqFlow().stateIn(coroutineScope, SharingStarted.Eagerly, SharingFrequency())
+	override suspend fun init() {
+		__mutex.withLock {
+			if (__initialized) {
+				return
+			}
+			__initialized = true
 
-	override fun setShareFreq(freq: SharingFrequency) {
-		coroutineScope.launch {
-			__dataStore.edit {
-				val oldFreq = extractShareFreq(it)
-				if (freq.ms != oldFreq.ms) {
-					it[__shareFreqKey] = freq.ms.toString()
-				}
+			__dataStore.edit { preferences ->
+				// shareFreq
+				val ms = preferences[__shareFreqKey]?.toIntOrNull()
+				__shareFreq.value =
+					if (ms != null) {
+						SharingFrequency(ms.toDouble() / 1000.0)
+					} else {
+						SharingFrequency()
+					}
+
+				// lastKeyResend
+				__lastKeyResend.value = preferences[__lastKeyResendKey]?.toLongOrNull() ?: 0
 			}
 		}
 	}
 
-	//-- lastKeyResend: Long
-
-	fun extractLastKeyResend(p: Preferences): Long {
-		return p[__lastKeyResendKey]?.toLongOrNull() ?: 0
-	}
-
-	fun lastKeyResendFlow(): Flow<Long> = __dataStore.data.map { data -> extractLastKeyResend(data) }
-
-	override val lastKeyResend by lazy {
-		lastKeyResendFlow().stateIn(coroutineScope, SharingStarted.Eagerly, 0)
+	override suspend fun setShareFreq(freq: SharingFrequency) {
+		__dataStore.edit {
+			it[__shareFreqKey] = freq.ms.toString()
+		}
+		__shareFreq.value = freq
 	}
 
 	override suspend fun setLastKeyResend(time: Long) {
 		__dataStore.edit { preferences ->
-			val oldTime = extractLastKeyResend(preferences)
-			if (time != oldTime) {
-				preferences[__lastKeyResendKey] = time.toString()
-			}
+			preferences[__lastKeyResendKey] = time.toString()
 		}
+		__lastKeyResend.value = time
 	}
 
-	//--
-
-	override fun launchEdit(block: suspend (SettingsStore) -> Unit) {
+	override fun launchEdit(block: suspend (dao: SettingsStoreDao) -> Unit) {
 		coroutineScope.launch {
 			block(this@SettingsDataStoreStore)
 		}

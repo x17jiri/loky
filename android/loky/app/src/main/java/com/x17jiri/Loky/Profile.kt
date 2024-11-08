@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayInputStream
 
 data class Credentials(
@@ -29,16 +31,17 @@ data class SigningKeys(
 	val keyOwner: String = "",
 )
 
-data class LoadingValue<T>(
-	val loaded: Boolean,
-	val value: T,
-)
-
 interface ProfileStore {
-	val cred: StateFlow<LoadingValue<Credentials>>
+	val cred: StateFlow<Credentials>
 	val bearer: StateFlow<String>
 	val signingKeys: StateFlow<SigningKeys>
 
+	suspend fun init();
+
+	fun launchEdit(block: suspend (dao: ProfileStoreDao) -> Unit)
+}
+
+interface ProfileStoreDao {
 	suspend fun setCred(cred: Credentials)
 	suspend fun setBearer(bearer: String)
 	suspend fun setSigningKeys(newKeys: SigningKeys)
@@ -46,14 +49,12 @@ interface ProfileStore {
 	suspend fun setSigningKeys(keyPair: SigningKeyPair, owner: String) {
 		setSigningKeys(SigningKeys(keyPair, owner))
 	}
-
-	fun launchEdit(block: suspend (ProfileStore) -> Unit)
 }
 
 class ProfileDataStoreStore(
 	val __dataStore: DataStore<Preferences>,
 	val coroutineScope: CoroutineScope,
-): ProfileStore {
+): ProfileStore, ProfileStoreDao {
 	companion object {
 		val __usernameKey: Preferences.Key<String> = stringPreferencesKey("login.username")
 		val __passwdKey: Preferences.Key<String> = stringPreferencesKey("login.passwd")
@@ -65,107 +66,89 @@ class ProfileDataStoreStore(
 		val __keyOwnerKey = stringPreferencesKey("key.owner")
 	}
 
-	//-- cred: Credentials
+	val __cred = MutableStateFlow(Credentials())
+	val __bearer = MutableStateFlow("")
+	val __signingKeys = MutableStateFlow(SigningKeys())
 
-	fun extractCred(p: Preferences): Credentials {
-		return Credentials(
-			username = p[__usernameKey] ?: "",
-			passwd = p[__passwdKey] ?: "",
-		)
-	}
+	override val cred: StateFlow<Credentials> = __cred
+	override val bearer: StateFlow<String> = __bearer
+	override val signingKeys: StateFlow<SigningKeys> = __signingKeys
 
-	fun credFlow(): Flow<Credentials> = __dataStore.data.map { data -> extractCred(data) }
+	val __mutex = Mutex()
+	var __initialized = false
 
-	override val cred by lazy {
-		credFlow()
-			.map<Credentials, LoadingValue<Credentials>> {
-				LoadingValue(loaded = true, value = it)
+	override suspend fun init() {
+		__mutex.withLock {
+			if (__initialized) {
+				return
 			}
-			.stateIn(
-				coroutineScope,
-				SharingStarted.Eagerly,
-				LoadingValue(loaded = false, value = Credentials())
+			__initialized = true
+
+			val preferences = __dataStore.data.first()
+			// cred
+			__cred.value = Credentials(
+				username = preferences[__usernameKey] ?: "",
+				passwd = preferences[__passwdKey] ?: "",
 			)
+
+			// bearer
+			__bearer.value = preferences[__bearerKey] ?: ""
+
+			// signingKeys
+			val public = preferences[__publicKeyKey] ?: ""
+			val private = preferences[__privateKeyKey] ?: ""
+			val owner = preferences[__keyOwnerKey] ?: ""
+
+			val publicKey = PublicSigningKey.fromString(public).getOrNull()
+			val privateKey = PrivateSigningKey.fromString(private).getOrNull()
+			if (publicKey != null && privateKey != null && owner.isNotEmpty()) {
+				__signingKeys.value = SigningKeys(
+					keyPair = SigningKeyPair(publicKey, privateKey),
+					keyOwner = owner,
+				)
+			}
+		}
 	}
+
+	//-- cred: Credentials
 
 	override suspend fun setCred(cred: Credentials) {
 		__dataStore.edit { preferences ->
-			val oldCreds = extractCred(preferences)
-			if (cred.username != oldCreds.username) {
-				preferences[__usernameKey] = cred.username
-			}
-			if (cred.passwd != oldCreds.passwd) {
-				preferences[__passwdKey] = cred.passwd
-			}
+			preferences[__usernameKey] = cred.username
+			preferences[__passwdKey] = cred.passwd
 		}
+		__cred.value = cred
 	}
 
 	//-- bearer: String
 
-	fun extractBearer(p: Preferences): String {
-		return p[__bearerKey] ?: ""
-	}
-
-	fun bearerFlow(): Flow<String> = __dataStore.data.map { data -> extractBearer(data) }
-
-	override val bearer by lazy {
-		bearerFlow().stateIn(coroutineScope, SharingStarted.Eagerly, "")
-	}
-
 	override suspend fun setBearer(bearer: String) {
 		__dataStore.edit { preferences ->
-			val oldBearer = extractBearer(preferences)
-			Log.d("Locodile", "setBearer: $bearer")
-			if (bearer != oldBearer) {
-				preferences[__bearerKey] = bearer
-			}
+			preferences[__bearerKey] = bearer
 		}
+		__bearer.value = bearer
 	}
 
 	//-- signingKeys: SigningKeys
 
-	fun extractSigningKeys(p: Preferences): SigningKeys {
-		val publicKey = PublicSigningKey.fromString(p[__publicKeyKey] ?: "").getOrNull()
-		val privateKey = PrivateSigningKey.fromString(p[__privateKeyKey] ?: "").getOrNull()
-		val owner = p[__keyOwnerKey] ?: ""
-		if (publicKey != null && privateKey != null && owner.isNotEmpty()) {
-			return SigningKeys(
-				keyPair = SigningKeyPair(publicKey, privateKey),
-				keyOwner = owner,
-			)
-		} else {
-			return SigningKeys()
-		}
-	}
-
-	fun signingKeysFlow(): Flow<SigningKeys> = __dataStore.data.map { data -> extractSigningKeys(data) }
-
-	override val signingKeys by lazy {
-		signingKeysFlow().stateIn(coroutineScope, SharingStarted.Eagerly, SigningKeys())
-	}
-
 	override suspend fun setSigningKeys(newKeys: SigningKeys) {
 		__dataStore.edit { preferences ->
-			val oldKeys = extractSigningKeys(preferences)
 			if (newKeys.keyPair != null && newKeys.keyOwner != "") {
-				if (newKeys.keyPair != oldKeys.keyPair) {
-					preferences[__publicKeyKey] = newKeys.keyPair.public.toString()
-					preferences[__privateKeyKey] = newKeys.keyPair.private.toString()
-				}
-				if (newKeys.keyOwner != oldKeys.keyOwner) {
-					preferences[__keyOwnerKey] = newKeys.keyOwner
-				}
+				preferences[__publicKeyKey] = newKeys.keyPair.public.toString()
+				preferences[__privateKeyKey] = newKeys.keyPair.private.toString()
+				preferences[__keyOwnerKey] = newKeys.keyOwner
 			} else {
 				preferences[__publicKeyKey] = ""
 				preferences[__privateKeyKey] = ""
 				preferences[__keyOwnerKey] = ""
 			}
 		}
+		__signingKeys.value = newKeys
 	}
 
 	//--
 
-	override fun launchEdit(block: suspend (ProfileStore) -> Unit) {
+	override fun launchEdit(block: suspend (dao: ProfileStoreDao) -> Unit) {
 		coroutineScope.launch {
 			block(this@ProfileDataStoreStore)
 		}

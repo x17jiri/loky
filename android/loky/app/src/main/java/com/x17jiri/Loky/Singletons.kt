@@ -100,3 +100,8 @@ val Context.__settings by SingletonBase { appContext, scope ->
 	SettingsDataStoreStore(appContext.__dataStore, scope)
 }
 
+suspend fun Context.init_singletons() {
+	this.__profileStore.init()
+	this.__settings.init()
+	this.__preKeyStore.init()
+}

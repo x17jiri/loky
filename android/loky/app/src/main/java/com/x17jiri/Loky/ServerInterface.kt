@@ -58,7 +58,7 @@ class ServerInterface(
 	context: Context,
 	val coroutineScope: CoroutineScope,
 ) {
-	private val server = "loky.x17jiri.online:11443"
+	private val server = "10.0.0.2:11443"
 	private var trustManager: X509TrustManager
 	private var sslContext: SSLContext
 	private val gson = Gson()
@@ -66,7 +66,6 @@ class ServerInterface(
 	private val profileStore = context.__profileStore
 	private val bearer = profileStore.bearer
 	private val settingsStore = context.__settings
-	private val lastKeyResend = settingsStore.lastKeyResend
 	private val contactsStore = context.__contactsStore
 	private val preKeyStore = context.__preKeyStore
 
@@ -126,6 +125,7 @@ class ServerInterface(
 				val responseCode = connection.responseCode
 				if (responseCode == HttpsURLConnection.HTTP_OK) {
 					val response = connection.inputStream.bufferedReader().use { it.readText() }
+					Log.d("Locodile", "ServerInterface.restAPI: response=$response")
 					return Result.success(gson.fromJson(response, responseType))
 				} else {
 					Log.d("Locodile", "ServerInterface.restAPI: response code=$responseCode")
@@ -151,7 +151,9 @@ class ServerInterface(
 		request: Request,
 		useBearer: Boolean = true,
 	): Result<Response> {
-		return __restAPI(url, request, useBearer, Response::class.java)
+		val res = __restAPI(url, request, useBearer, Response::class.java)
+		Log.d("Locodile", "ServerInterface.__restAPI: res=$res")
+		return res
 	}
 
 	suspend fun login(): Result<NeedPrekeys> {
@@ -159,18 +161,25 @@ class ServerInterface(
 			// Note: the password hash is not used for security.
 			// It is used so we can limit message size on the server side
 			// without limiting the password size.
-			val cred = profileStore.cred.first { it.loaded }.value
+			val cred = profileStore.cred.value
 			val username = cred.username
 			val passwd = Base64.encode(Crypto.hash(Crypto.strToByteArray(cred.passwd)))
 
 			val signingKeys = profileStore.signingKeys.value
 			val keyPair: SigningKeyPair
+			Log.d("Locodile", "ServerInterface.login: signingKeys=$signingKeys")
+			Log.d("Locodile", "ServerInterface.login: signingKeys.keyPair=${signingKeys.keyPair}")
+			Log.d("Locodile", "ServerInterface.login: signingKeys.keyOwner=${signingKeys.keyOwner}")
+			Log.d("Locodile", "ServerInterface.login: username=$username")
 			if (signingKeys.keyPair != null && signingKeys.keyOwner == username) {
 				keyPair = signingKeys.keyPair
 			} else {
 				try {
+					Log.d("Locodile", "ServerInterface.login: generating keys")
 					keyPair = SigningKeyPair.generate()
+					Log.d("Locodile", "ServerInterface.login: generated keys")
 					profileStore.setSigningKeys(keyPair, username)
+					Log.d("Locodile", "ServerInterface.login: saved keys")
 				} catch (e: Exception) {
 					Log.d("Locodile", "ServerInterface.login: e=$e")
 					return@withContext Result.failure(e)
@@ -261,7 +270,6 @@ class ServerInterface(
 
 			data class AddPreKeysResponse(
 				val live_prekeys: List<String>,
-				val added: Boolean,
 			)
 
 			val mySigningKeys = profileStore.signingKeys.value.keyPair
@@ -274,16 +282,7 @@ class ServerInterface(
 					"${signedKey.key.toString()},${signedKey.signature.toString()}"
 				}),
 			).mapCatching { resp ->
-				preKeyStore.markLive(resp.live_prekeys.mapNotNull { keySig ->
-					val parts = keySig.split(",")
-					if (parts.size != 2) {
-						return@mapNotNull null
-					}
-					PublicDHKey.fromString(parts[0]).getOrNull()
-				})
-				if (!resp.added) {
-					throw Exception("Server did not accept prekeys")
-				}
+				resp.live_prekeys
 			}
 		}
 	}
@@ -309,15 +308,22 @@ class ServerInterface(
 			)
 
 			data class SendResponse(
-				val needPreKeys: Boolean,
+				val needPrekeys: Boolean,
 			)
 
 			val items = mutableListOf<Message>()
 
-			val lastKeyResend = lastKeyResend.value
+			val lastKeyResend = settingsStore.lastKeyResend.value
 			val nextKeyResend = lastKeyResend + KEY_RESEND_SEC
 			val now = monotonicSeconds()
+			Log.d("Locodile", "ServerInterface.sendLoc: now=$now")
+			Log.d("Locodile", "ServerInterface.sendLoc: lastKeyResend=$lastKeyResend")
+			Log.d("Locodile", "ServerInterface.sendLoc: nextKeyResend=$nextKeyResend")
+			Log.d("Locodile", "ServerInterface.sendLoc: forceKeyResend=$forceKeyResend")
+			Log.d("Locodile", "ServerInterface.sendLoc: contacts=$contacts")
 			if (forceKeyResend || now !in lastKeyResend until nextKeyResend) {
+				settingsStore.lastKeyResend.value = now
+
 				// Try to change keys if the time has come
 				val toChange = contacts.filter { contact -> contact.shouldChangeKeys(now) }
 				if (toChange.isNotEmpty()) {
@@ -337,26 +343,35 @@ class ServerInterface(
 				}
 				// Send message with the current keys
 				for (contact in contacts) {
+					Log.d("Locodile", "ServerInterface.sendLoc: sending keys for contact ${contact.id}")
 					val (myKey, theirKey) = contact.usedKeys() ?: continue
 					val myKeyStr = myKey.key.toString()
 					val mySigStr = myKey.signature.toString()
 					val theirKeyStr = theirKey.toString()
+					Log.d("Locodile", "ServerInterface.sendLoc: 1: items.count=${items.count()}")
 					items.add(Message(contact.id, "k", "$myKeyStr,$mySigStr,$theirKeyStr"))
+					Log.d("Locodile", "ServerInterface.sendLoc: 2: items.count=${items.count()}")
 				}
 			}
 
 			val msg = loc.latitude.toString() + "," + loc.longitude.toString()
 			for (contact in contacts) {
+				Log.d("Locodile", "ServerInterface.sendLoc: sending msg for contact ${contact.id}")
 				contact.encrypt(msg).onSuccess { encrypted ->
+					Log.d("Locodile", "ServerInterface.sendLoc: 1: items.count=${items.count()}")
 					items.add(Message(contact.id, "m", "${Base64.encode(encrypted)}"))
+					Log.d("Locodile", "ServerInterface.sendLoc: 2: items.count=${items.count()}")
 				}
 			}
+
+			Log.d("Locodile", "ServerInterface.sendLoc: items.count=${items.count()}")
+			Log.d("Locodile", "ServerInterface.sendLoc: items=$items")
 
 			restAPI<SendRequest, SendResponse>(
 				"https://$server/api/send",
 				SendRequest(items)
 			).mapCatching { resp ->
-				NeedPrekeys(resp.needPreKeys)
+				NeedPrekeys(resp.needPrekeys)
 			}
 		}
 	}
@@ -366,6 +381,7 @@ class ServerInterface(
 			return Result.success(Pair(emptyList(), NeedPrekeys(false)))
 		}
 
+		Log.d("Locodile", "ServerInterface.recv: before withContext")
 		return withContext(Dispatchers.IO) {
 			class RecvRequest {}
 
@@ -382,15 +398,20 @@ class ServerInterface(
 			)
 
 			val now = monotonicSeconds()
+			Log.d("Locodile", "ServerInterface.recv: before restAPI call")
 			restAPI<RecvRequest, RecvResponse>(
 				"https://$server/api/recv",
 				RecvRequest()
 			).mapCatching { resp ->
+				if (resp.items.isNotEmpty()) {
+					Log.d("Locodile", "++++++++++++++++++++++++++++++++++++++++++++ ServerInterface.recv: resp.items.count=${resp.items.count()}")
+				}
 				val messages = mutableListOf<Message>()
 				for (msg in resp.items) {
 					try {
 						val contact = contacts[msg.from] ?: continue
 						if (msg.type == "k") {
+							Log.d("Locodile", "ServerInterface.recv: k")
 							val keys = msg.msg.split(",")
 							if (keys.size != 3) {
 								Log.d("Locodile", "ServerInterface.recv: invalid keys")
@@ -401,6 +422,7 @@ class ServerInterface(
 							val myKey = PublicDHKey.fromString(keys[2]).getOrThrow()
 							contact.switchKeys(now, myKey, SignedPublicDHKey(theirKey, theirSig))
 						} else if (msg.type == "m") {
+							Log.d("Locodile", "ServerInterface.recv: m")
 							val encrypted = Base64.decode(msg.msg)
 							val decrypted = contact.decrypt(encrypted).getOrThrow()
 							val parts = decrypted.split(",")

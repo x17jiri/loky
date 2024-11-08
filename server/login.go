@@ -22,6 +22,7 @@ type LoginResponse struct {
 }
 
 func login_http_handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("=================================================================================")
 	fmt.Println("login_handler")
 	r.Body = http.MaxBytesReader(w, r.Body, 2048)
 

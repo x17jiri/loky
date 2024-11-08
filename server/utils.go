@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 	"unsafe"
@@ -111,38 +110,6 @@ func (b *Base64Bytes) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type UserID uint64
-
-func (id UserID) toString() string {
-	part1 := (id >> 48) & 0xffff
-	part2 := (id >> 32) & 0xffff
-	part3 := (id >> 16) & 0xffff
-	part4 := id & 0xffff
-	return fmt.Sprintf("%04x_%04x_%04x_%04x", part1, part2, part3, part4)
-}
-
-func userIDFromString(s string) (UserID, error) {
-	parts := strings.Split(s, "_")
-	if len(parts) != 4 {
-		return 0, fmt.Errorf("invalid UserID string: %s", s)
-	}
-
-	var id uint64 = 0
-	for _, part := range parts {
-		if len(part) != 4 {
-			return 0, fmt.Errorf("invalid UserID string: %s", s)
-		}
-
-		val, err := strconv.ParseUint(part, 16, 16)
-		if err != nil {
-			return 0, err
-		}
-
-		id = (id << 16) | val
-	}
-	return UserID(id), nil
-}
-
 type Bearer string
 
 func makeBearer(id UserID) (Bearer, error) {
@@ -152,7 +119,7 @@ func makeBearer(id UserID) (Bearer, error) {
 		return "", err
 	}
 
-	bearer := fmt.Sprintf("%d.%s", id, base64Encode(token[:]))
+	bearer := fmt.Sprintf("%s.%s", id.toString(), base64Encode(token[:]))
 
 	return Bearer(bearer), nil
 }

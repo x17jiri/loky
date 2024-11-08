@@ -51,7 +51,7 @@ func (inbox *Inbox) addPart(now int64) *InboxPart {
 
 func (inbox *Inbox) getPart(now int64) *InboxPart {
 	partCnt := len(inbox.Parts)
-	if partCnt > 0 && inbox.Parts[partCnt-1].canUse(now) {
+	if partCnt > 0 && inbox.Parts[partCnt-1].canAdd(now) {
 		// We have an inbox part that's not too old, so we can use it
 		return &inbox.Parts[partCnt-1]
 	} else {
@@ -68,6 +68,7 @@ func (inbox *Inbox) addMessage(msg *Message) *RestAPIError {
 	// Make sure `Type` and `Data` don't contain any space or newline.
 	// We use these characters as separators in the inbox file format.
 	if strings.ContainsAny(msg.Type, " \n") || strings.ContainsAny(msg.Msg, " \n") {
+		fmt.Println("Invalid message: ", msg)
 		return NewError("invalid message", http.StatusBadRequest)
 	}
 
@@ -75,14 +76,17 @@ func (inbox *Inbox) addMessage(msg *Message) *RestAPIError {
 	inboxPart := inbox.getPart(msg.Time)
 
 	// Write the message to the inbox part
+	fmt.Println("Writing message to file: ", inboxPart.File)
 	f, err := os.OpenFile(inboxPart.File, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
+		fmt.Println("Error opening file: ", err)
 		return NewError("opening file: "+err.Error(), http.StatusInternalServerError)
 	}
 	defer f.Close()
 
 	_, err = f.WriteString(fmt.Sprintf("%d %s %s %s\n", msg.Time, msg.From, msg.Type, msg.Msg))
 	if err != nil {
+		fmt.Println("Error writing to file: ", err)
 		return NewError("writing to file: "+err.Error(), http.StatusInternalServerError)
 	}
 
@@ -92,21 +96,29 @@ func (inbox *Inbox) addMessage(msg *Message) *RestAPIError {
 func (part *InboxPart) getMessages(now int64, messages []Message) []Message {
 	f, err := os.Open(part.File)
 	if err != nil {
+		fmt.Println("Error opening file: ", err)
 		return messages
 	}
 	defer f.Close()
 
-	validRange := timeRange(now-MSG_EXPIRE_SEC, MSG_EXPIRE_SEC)
+	validRange := timeRange(now-MSG_EXPIRE_SEC, MSG_EXPIRE_SEC+10)
 
 	for {
 		var msg Message
 		_, err := fmt.Fscanf(f, "%d %s %s %s\n", &msg.Time, &msg.From, &msg.Type, &msg.Msg)
 		if err != nil {
+			if err.Error() != "EOF" {
+				fmt.Println("Error reading message: ", err)
+			}
 			break
 		}
 		if validRange.contains(msg.Time) {
 			msg.Time = now - msg.Time
 			messages = append(messages, msg)
+		} else {
+			fmt.Println("Ignoring expired message: ", msg)
+			fmt.Println("Valid range: ", validRange)
+			fmt.Println("Message time: ", msg.Time)
 		}
 	}
 	return messages
@@ -115,10 +127,12 @@ func (part *InboxPart) getMessages(now int64, messages []Message) []Message {
 // The `Time` field of the returned messages contains the age of the message in seconds.
 // I.e., they are ready to be sent over the network.
 func (inbox *Inbox) getMessages(now int64) ([]Message, *RestAPIError) {
-	var messages []Message
+	messages := make([]Message, 0)
 	for i, part := range inbox.Parts {
-		if part.canUse(now) {
+		if part.canContainUnexpiredMessages(now) {
 			messages = part.getMessages(now, messages)
+		} else {
+			fmt.Println("Not using expired inbox part: ", part.File)
 		}
 		_ = os.Remove(part.File)
 		inbox.Parts[i] = InboxPart{}
@@ -139,17 +153,14 @@ func newInboxPart(user *User, now int64) InboxPart {
 	}
 }
 
-func (p *InboxPart) usableRange() TimeRange {
-	return timeRange(p.FirstMessageTimestamp, SWITCH_INBOX_SEC)
-}
-
-func (p *InboxPart) canUse(now int64) bool {
-	return p.usableRange().contains(now)
+func (p *InboxPart) canAdd(now int64) bool {
+	return timeRange(p.FirstMessageTimestamp, SWITCH_INBOX_SEC).contains(now)
 }
 
 func (p *InboxPart) canContainUnexpiredMessages(now int64) bool {
-	validRange := timeRange(now-MSG_EXPIRE_SEC, MSG_EXPIRE_SEC)
-	return p.usableRange().overlaps(validRange)
+	msgValidRange := timeRange(now-MSG_EXPIRE_SEC, MSG_EXPIRE_SEC+10)
+	partRange := timeRange(p.FirstMessageTimestamp, SWITCH_INBOX_SEC+1)
+	return partRange.overlaps(msgValidRange)
 }
 
 func inboxFile(dir string, time int64) string {
@@ -157,6 +168,8 @@ func inboxFile(dir string, time int64) string {
 }
 
 func (user *User) loadInbox() error {
+	user.Inbox = newInbox(user)
+
 	inboxDir := user.inboxDir()
 	if err := os.MkdirAll(inboxDir, 0755); err != nil {
 		return err

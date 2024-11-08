@@ -48,6 +48,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.newFixedThreadPoolContext
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.Executor
 
 class LocationService: Service() {
@@ -100,6 +101,10 @@ class LocationService: Service() {
 	override fun onCreate() {
 		super.onCreate()
 
+		runBlocking {
+			init_singletons()
+		}
+
 		serviceScope = CoroutineScope(Dispatchers.IO)
 		server = this.__server
 
@@ -107,8 +112,7 @@ class LocationService: Service() {
 			.flow()
 			.stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
 
-		val shareFreqFlow = this.__settings.shareFreqFlow()
-		shareFreq = shareFreqFlow.stateIn(serviceScope, SharingStarted.Eagerly, SharingFrequency())
+		shareFreq = this.__settings.shareFreq
 
 		powerManager = getSystemService(POWER_SERVICE) as PowerManager
 		wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Locodile:LocationService")
@@ -180,6 +184,7 @@ class LocationService: Service() {
 						val contacts = __contacts.value
 						val oldContacts = __oldContacts
 						__oldContacts = contacts
+						Log.d("Locodile.LocationService", "Location changed: contacts=${contacts}")
 						__server
 							.sendLoc(loc, contacts, forceKeyResend = contacts !== oldContacts)
 							.onSuccess { needPrekeys ->

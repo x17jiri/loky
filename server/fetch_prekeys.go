@@ -26,12 +26,12 @@ func fetchPrekeys_restAPI_handler(user *User, req FetchPrekeysRequest) (FetchPre
 
 	users := usersList.Load()
 	for _, id := range req.Ids {
-		fromId, err := userIDFromString(id)
+		fromId, err := encryptedIDfromString(id)
 		if err != nil {
 			response.Prekeys = append(response.Prekeys, "")
 			continue
 		}
-		fromUser := users.userById(fromId)
+		fromUser := users.userById(fromId.decrypt())
 		if fromUser == nil {
 			response.Prekeys = append(response.Prekeys, "")
 			continue
@@ -62,7 +62,7 @@ func fetchPrekey_synchronized_handler(user *User, _ FetchPrekeyRequest) FetchPre
 		Log.i("taking a prekey of %s", user.Username)
 		prekey := user.Prekeys[0]
 		user.Prekeys = shift(user.Prekeys, 1)
-		_ = user.save_user()
+		_ = user.save()
 
 		return FetchPrekeyResponse{
 			Prekey: prekey,

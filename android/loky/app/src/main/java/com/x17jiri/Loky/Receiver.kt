@@ -130,10 +130,10 @@ class Receiver(
 									}
 								}
 							},
-							onFailure = {
+							onFailure = { e ->
 								Log.d("Locodile", "recv onFailure")
-								Log.d("Locodile", "Receiver: e=$it")
-								Log.d("Locodile", "Receiver: e=${it.stackTraceToString()}")
+								Log.d("Locodile", "Receiver: e=$e")
+								Log.d("Locodile", "Receiver: e=${e.stackTraceToString()}")
 							}
 						)
 					}

@@ -1,68 +1,81 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"sync/atomic"
 )
 
-type UserID uint64
-
-func (id UserID) toString() string {
-	part1 := (id >> 48) & 0xffff
-	part2 := (id >> 32) & 0xffff
-	part3 := (id >> 16) & 0xffff
-	part4 := id & 0xffff
-	return fmt.Sprintf("%04x_%04x_%04x_%04x", part1, part2, part3, part4)
+type UserID struct {
+	Id uint64
+	Sn uint64
 }
 
-func userIDFromString(s string) (UserID, error) {
-	parts := strings.Split(s, "_")
-	if len(parts) != 4 {
-		return 0, fmt.Errorf("invalid UserID string: %s", s)
-	}
-
-	var id uint64 = 0
-	for _, part := range parts {
-		if len(part) != 4 {
-			return 0, fmt.Errorf("invalid UserID string: %s", s)
-		}
-
-		val, err := strconv.ParseUint(part, 16, 16)
-		if err != nil {
-			return 0, err
-		}
-
-		id = (id << 16) | val
-	}
-	return UserID(id), nil
+func (id UserID) encrypt() EncryptedID {
+	encId := EncryptedID{}
+	encId.Bytes = make([]byte, 16)
+	binary.LittleEndian.PutUint64(encId.Bytes[:8], id.Id)
+	binary.LittleEndian.PutUint64(encId.Bytes[8:], id.Sn)
+	config.Aes.Encrypt(encId.Bytes, encId.Bytes)
+	return encId
 }
 
-func (id UserID) MarshalJSON() ([]byte, error) {
+type EncryptedID struct {
+	Bytes []byte
+}
+
+func (encId EncryptedID) decrypt() UserID {
+	decId := EncryptedID{}
+	decId.Bytes = make([]byte, 16)
+	config.Aes.Decrypt(decId.Bytes, encId.Bytes)
+	id := UserID{
+		Id: binary.LittleEndian.Uint64(decId.Bytes[:8]),
+		Sn: binary.LittleEndian.Uint64(decId.Bytes[8:]),
+	}
+	return id
+}
+
+func (id EncryptedID) toString() string {
+	return base64Encode(id.Bytes)
+}
+
+func encryptedIDfromString(encoded string) (EncryptedID, error) {
+	decoded, err := base64Decode(encoded)
+	if err != nil {
+		return EncryptedID{}, err
+	}
+	if len(decoded) != 16 {
+		return EncryptedID{}, fmt.Errorf("invalid EncryptedID length: %d", len(decoded))
+	}
+	return EncryptedID{Bytes: decoded}, nil
+}
+
+func (id EncryptedID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(id.toString())
 }
 
-func (id *UserID) UnmarshalJSON(data []byte) error {
-	var idStr string
-	if err := json.Unmarshal(data, &idStr); err != nil {
+func (id *EncryptedID) UnmarshalJSON(data []byte) error {
+	var encoded string
+	if err := json.Unmarshal(data, &encoded); err != nil {
 		return err
 	}
 
-	parsedID, err := userIDFromString(idStr)
+	decoded, err := base64Decode(encoded)
 	if err != nil {
 		return err
 	}
 
-	*id = parsedID
+	id.Bytes = decoded
 	return nil
 }
 
 type User struct {
-	Id UserID `json:"-"` // used instead of username in all operations except login
+	Id          uint64      `json:"-"` // used instead of username in all operations except login
+	Sn          uint64      `json:"sn"`
+	EncryptedID EncryptedID `json:"-"`
 
 	Username string      `json:"username"`
 	Salt     Base64Bytes `json:"salt"`   // salt for password hashing
@@ -71,7 +84,8 @@ type User struct {
 	// TODO - bearer should be verified with signature, we shouldn't store it
 	Bearer Bearer `json:"bearer"`
 
-	Key string `json:"key"` // public key for signing
+	SigningKey string `json:"sig_key"`    // public key for SigningKey
+	MasterKey  string `json:"master_key"` // master public key for diffie-hellman key exchange
 
 	Prekeys     []string                `json:"prekeys"` // public keys for diffie-hellman key exchange
 	Inbox       Inbox                   `json:"-"`
@@ -107,11 +121,11 @@ func user_handler(user *User) {
 }
 
 func usersDir() string {
-	return filepath.Join(appPath(), "users")
+	return filepath.Join(config.appPath(), "users")
 }
 
 func (user *User) userDir() string {
-	return filepath.Join(usersDir(), user.Id.toString())
+	return filepath.Join(usersDir(), fmt.Sprintf("%019d", user.Id))
 }
 
 func (user *User) inboxDir() string {
@@ -120,13 +134,13 @@ func (user *User) inboxDir() string {
 
 type Users struct {
 	name_map map[string]*User
-	id_map   map[UserID]*User
+	id_map   map[uint64]*User
 }
 
 func newUsers() *Users {
 	return &Users{
 		name_map: make(map[string]*User),
-		id_map:   make(map[UserID]*User),
+		id_map:   make(map[uint64]*User),
 	}
 }
 
@@ -147,8 +161,8 @@ func (users *Users) userByName(name string) *User {
 }
 
 func (users *Users) userById(id UserID) *User {
-	user, found := users.id_map[id]
-	if !found {
+	user, found := users.id_map[id.Id]
+	if !found || user.Sn != id.Sn {
 		return nil
 	}
 	return user
@@ -157,7 +171,7 @@ func (users *Users) userById(id UserID) *User {
 func (users *Users) shallow_clone() *Users {
 	users_clone := &Users{
 		name_map: make(map[string]*User),
-		id_map:   make(map[UserID]*User),
+		id_map:   make(map[uint64]*User),
 	}
 	for id, user := range users.id_map {
 		users_clone.name_map[user.Username] = user
@@ -166,9 +180,9 @@ func (users *Users) shallow_clone() *Users {
 	return users_clone
 }
 
-func load_user(id UserID, dir string) (*User, error) {
+func load_user(id uint64, dir string) (*User, error) {
 	json_file := filepath.Join(dir, "user.json")
-	bytes, err := read_file(json_file)
+	bytes, err := os.ReadFile(json_file)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +194,7 @@ func load_user(id UserID, dir string) (*User, error) {
 	}
 
 	user.Id = id
+	user.EncryptedID = UserID{Id: id, Sn: user.Sn}.encrypt()
 	err = user.loadInbox()
 	if err != nil {
 		return nil, err
@@ -193,7 +208,7 @@ func load_user(id UserID, dir string) (*User, error) {
 	return user, nil
 }
 
-func (user *User) save_user() error {
+func (user *User) save() error {
 	jsonData, err := json.MarshalIndent(user, "", "\t")
 	if err != nil {
 		return err
@@ -219,26 +234,17 @@ func load_users() (*Users, error) {
 
 	users := &Users{
 		name_map: make(map[string]*User),
-		id_map:   make(map[UserID]*User),
+		id_map:   make(map[uint64]*User),
 	}
 	for _, dir := range dirs {
 		if !dir.IsDir() {
 			Log.i("load_users(): Not a dir: %s", dir.Name())
 			continue
 		}
-		id, err := userIDFromString(dir.Name())
-		if err != nil {
+		var id uint64
+		n, err := fmt.Sscanf(dir.Name(), "%019d", &id)
+		if err != nil || n != 1 {
 			Log.i("load_users(): Invalid user ID: %s", dir.Name())
-			continue
-		}
-		if dir.Name() != id.toString() {
-			// This could happen if our user ID encoding uses lower case letters for hex digits
-			// and someone names the dir with upper case letters.
-			// On case-sensitive filesystems, this would be a problem.
-			Log.e(
-				"load_users(): Invalid user ID encoding: '%s', expected: '%s'",
-				dir.Name(), id.toString(),
-			)
 			continue
 		}
 		userDir := filepath.Join(topdir, dir.Name())
@@ -250,35 +256,10 @@ func load_users() (*Users, error) {
 		users.name_map[user.Username] = user
 		users.id_map[id] = user
 
-		Log.i("User loaded: %s, ID: %s", user.Username, id.toString())
+		encID := UserID{Id: id, Sn: user.Sn}.encrypt().toString()
+		Log.i("User loaded: %s, ID: %019d, encID: %s", user.Username, id, encID)
 	}
 	return users, nil
-}
-
-func __gen_unique_id(users *Users) (UserID, error) {
-	var id UserID
-	var err error
-	var i int
-	for i = 0; i < 10; i++ {
-		id, err = __gen_id()
-		if err != nil {
-			return 0, err
-		}
-		_, found := users.id_map[id]
-		if !found {
-			break
-		}
-	}
-	if i == 10 {
-		for {
-			id++
-			_, found := users.id_map[id]
-			if !found {
-				break
-			}
-		}
-	}
-	return id, nil
 }
 
 func addUser(users *Users, username string, passwd []byte) (*Users, error) {
@@ -287,27 +268,31 @@ func addUser(users *Users, username string, passwd []byte) (*Users, error) {
 		return nil, fmt.Errorf("user name %s already exists", username)
 	}
 
-	salt, err := __gen_salt(16)
+	salt, err := randBytes(16)
 	if err != nil {
 		return nil, err
 	}
 
 	hashed_passwd := __hash_passwd(passwd, salt)
 
-	id, err := __gen_unique_id(users)
+	id, err := config.genId()
 	if err != nil {
 		return nil, err
 	}
 
 	user := &User{
+		Id:          id.Id,
+		Sn:          id.Sn,
+		EncryptedID: id.encrypt(),
+
 		Username: username,
-		Id:       id,
 		Salt:     salt,
 		Passwd:   hashed_passwd,
 
 		Bearer: "",
 
-		Key: "",
+		SigningKey: "",
+		MasterKey:  "",
 
 		Prekeys:     make([]string, 0),
 		Inbox:       Inbox{},
@@ -326,14 +311,14 @@ func addUser(users *Users, username string, passwd []byte) (*Users, error) {
 		return nil, err
 	}
 
-	err = user.save_user()
+	err = user.save()
 	if err != nil {
 		return nil, err
 	}
 
 	newUsers := users.shallow_clone()
 	newUsers.name_map[username] = user
-	newUsers.id_map[id] = user
+	newUsers.id_map[id.Id] = user
 
 	return newUsers, nil
 }

@@ -30,7 +30,7 @@ func send_restAPI_handler(user *User, req SendRequest) (SendResponse, *RestAPIEr
 
 	Log.d("msg count = %d", len(req.Items))
 	now := monotonicSeconds()
-	from := user.Id.toString()
+	from := user.EncryptedID.toString()
 	users := usersList.Load()
 	for _, item := range req.Items {
 		toUser := users.userById(item.To)

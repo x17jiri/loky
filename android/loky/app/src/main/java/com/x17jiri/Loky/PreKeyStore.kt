@@ -158,6 +158,17 @@ class PreKeyDBStore(
 		try {
 			val newList = (0 until 10).map { PreKey(DHKeyPair.generate()) }
 
+			val newEntities = newList.map { data ->
+				PreKeyDBEntity(
+					data.keyPair.public.toString(),
+					data.keyPair.private.toString(),
+					data.usedTime,
+				)
+			}
+			launchEdit {
+				dao.insert(newEntities)
+			}
+
 			val newMap = newList.associateBy { it.keyPair.public.toString() }
 			keysMutex.withLock {
 				keys.putAll(newMap)
@@ -177,35 +188,34 @@ class PreKeyDBStore(
 				val now = monotonicSeconds()
 				val validFrom = now - KEY_EXPIRE_SEC
 
-				val deadKeys: Map<String, PreKey>
+				val usedKeys: Map<String, PreKey>
 				keysMutex.withLock {
-					deadKeys = keys - liveKeys
+					usedKeys = keys - liveKeys
 
+					// markUsed()
 					keys.replaceAll { key, data ->
-						if (key in deadKeys && data.usedTime == null) {
+						if (key in usedKeys && data.usedTime == null) {
 							data.copy(usedTime = now)
 						} else {
 							data
 						}
 					}
 
+					// delExpired()
 					keys.entries.removeIf {
 						(_, data) -> data.usedTime != null && data.usedTime < validFrom
 					}
 				}
 
-				Log.d("Locodile !!!!!!!!!!!!!!!!!!!!!!!!1", "PreKeyDBStore.generate. deadKeys=$deadKeys")
-
-				val newEntities = newList.map { data ->
-					PreKeyDBEntity(
-						data.keyPair.public.toString(),
-						data.keyPair.private.toString(),
-						data.usedTime,
+				for (key in usedKeys) {
+					Log.d(
+						"Locodile !!!!!!!!!!!!!!!!!!!!!!!!1",
+						"PreKeyDBStore.generate. usedKey=$key"
 					)
 				}
+
 				launchEdit {
-					dao.insert(newEntities)
-					dao.markUsed(now, deadKeys.keys.toList())
+					dao.markUsed(now, usedKeys.keys.toList())
 					dao.delExpired(validFrom)
 				}
 			}

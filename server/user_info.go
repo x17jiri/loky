@@ -15,17 +15,18 @@ type UserInfoRequest struct {
 }
 
 type UserInfoResponse struct {
-	Id  string `json:"id"`
-	Key string `json:"key"`
+	Id         string `json:"id"`
+	SigningKey string `json:"sig_key"`    // public key for SigningKey
+	MasterKey  string `json:"master_key"` // master public key for diffie-hellman key exchange
 
 	Err *RestAPIError `json:"-"`
 }
 
-func userInfo_restAPI_handler(user *User, req UserInfoRequest) (UserInfoResponse, *RestAPIError) {
+func userInfo_restAPI_handler(_ *User, req UserInfoRequest) (UserInfoResponse, *RestAPIError) {
 	// The `user` we've got as a param is the user asking the info,
 	// not the user we're asking about.
 	// So get the right user from the list.
-	user = usersList.Load().userByName(req.Username)
+	user := usersList.Load().userByName(req.Username)
 	if user == nil {
 		return UserInfoResponse{}, NewError("User not found", http.StatusNotFound)
 	}
@@ -46,7 +47,8 @@ func userInfo_restAPI_handler(user *User, req UserInfoRequest) (UserInfoResponse
 // so that only one thread at a time can access the user's data.
 func userInfo_synchronized_handler(user *User) UserInfoResponse {
 	return UserInfoResponse{
-		Id:  user.Id.toString(),
-		Key: user.Key,
+		Id:         user.EncryptedID.toString(),
+		SigningKey: user.SigningKey,
+		MasterKey:  user.MasterKey,
 	}
 }

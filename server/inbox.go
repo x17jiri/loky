@@ -43,6 +43,13 @@ func (inbox *Inbox) removeExpiredParts(now int64) {
 	inbox.Parts = shift(inbox.Parts, firstNotExpired)
 }
 
+func (inbox *Inbox) clear() {
+	for _, part := range inbox.Parts {
+		_ = os.Remove(part.File)
+	}
+	inbox.Parts = inbox.Parts[:0]
+}
+
 func (inbox *Inbox) addPart(now int64) *InboxPart {
 	part := newInboxPart(inbox.User, now)
 	inbox.Parts = append(inbox.Parts, part)

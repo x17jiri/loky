@@ -4,14 +4,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"strings"
 	"time"
-	"unsafe"
 )
 
 type TimeRange struct {
@@ -35,32 +31,13 @@ func monotonicSeconds() int64 {
 	return int64(time.Since(referenceTime).Seconds())
 }
 
-func read_file(filename string) ([]byte, error) {
-	file, err := os.Open(filename)
+func randBytes(count int) ([]byte, error) {
+	bytes := make([]byte, count)
+	_, err := rand.Read(bytes)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-
-	return io.ReadAll(file)
-}
-
-func __gen_salt(count int) ([]byte, error) {
-	salt := make([]byte, count)
-	_, err := rand.Read(salt)
-	if err != nil {
-		return nil, err
-	}
-	return salt, nil
-}
-
-func __gen_id() (UserID, error) {
-	var idBytes [8]byte = [unsafe.Sizeof(UserID(0))]byte{}
-	_, err := rand.Read(idBytes[:])
-	if err != nil {
-		return 0, err
-	}
-	return UserID(binary.LittleEndian.Uint64(idBytes[:])), nil
+	return bytes, nil
 }
 
 func hash(input string) []byte {
@@ -106,14 +83,13 @@ func (b *Base64Bytes) UnmarshalJSON(data []byte) error {
 
 type Bearer string
 
-func makeBearer(id UserID) (Bearer, error) {
-	token := [16]byte{}
-	_, err := rand.Read(token[:])
+func makeBearer(id EncryptedID) (Bearer, error) {
+	token, err := randBytes(16)
 	if err != nil {
 		return "", err
 	}
 
-	bearer := fmt.Sprintf("%s.%s", id.toString(), base64Encode(token[:]))
+	bearer := fmt.Sprintf("%s.%s", id.toString(), base64Encode(token))
 
 	return Bearer(bearer), nil
 }
@@ -121,10 +97,15 @@ func makeBearer(id UserID) (Bearer, error) {
 func (bearer Bearer) toUserID() (UserID, error) {
 	parts := strings.Split(string(bearer), ".")
 	if len(parts) != 2 {
-		return 0, fmt.Errorf("invalid bearer string: %s", bearer)
+		return UserID{}, fmt.Errorf("invalid bearer string: %s", bearer)
 	}
 
-	return userIDFromString(parts[0])
+	encId, err := encryptedIDfromString(parts[0])
+	if err != nil {
+		return UserID{}, err
+	}
+
+	return encId.decrypt(), nil
 }
 
 func find_first[T any](slice []T, predicate func(T) bool) int {

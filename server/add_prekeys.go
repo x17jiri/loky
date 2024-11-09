@@ -42,7 +42,7 @@ func addPrekeys_synchronized_handler(user *User, req AddPrekeysRequest) AddPreke
 
 	user.Prekeys = append(user.Prekeys, req.Prekeys...)
 
-	_ = user.save_user()
+	_ = user.save()
 
 	return AddPrekeysResponse{
 		LivePrekeys: user.Prekeys,

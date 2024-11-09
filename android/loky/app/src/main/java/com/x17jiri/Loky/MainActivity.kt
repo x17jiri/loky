@@ -1,17 +1,10 @@
 package com.x17jiri.Loky
 
 import android.annotation.SuppressLint
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.ColorSpace.Rgb
-import android.graphics.Paint.Align
 import android.os.Bundle
 import android.util.Log
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,21 +12,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
-import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -44,15 +30,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import com.x17jiri.Loky.ui.theme.X17LokyTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -64,48 +47,32 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat.startForegroundService
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.room.ColumnInfo
-import androidx.room.PrimaryKey
-import com.mapbox.android.core.permissions.PermissionsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.security.SecureRandom
 import com.mapbox.geojson.Point
 import com.mapbox.maps.extension.compose.MapEffect
 import com.mapbox.maps.extension.compose.MapboxMap
@@ -117,14 +84,10 @@ import com.mapbox.maps.extension.compose.annotation.rememberIconImage
 import com.mapbox.maps.plugin.PuckBearing
 import com.mapbox.maps.plugin.locationcomponent.createDefault2DPuck
 import com.mapbox.maps.plugin.locationcomponent.location
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 class MainActivity: ComponentActivity() {
@@ -132,31 +95,31 @@ class MainActivity: ComponentActivity() {
 		super.onCreate(savedInstanceState)
 		setContent {
 			X17LokyTheme {
-				NavigationGraph(lifecycleScope)
+				NavigationGraph()
 			}
 		}
 	}
 }
 
 @Composable
-fun NavigationGraph(scope: CoroutineScope) {
+fun NavigationGraph() {
 	val context = LocalContext.current
 	val model: MainViewModel = viewModel(factory = MainViewModelFactory(context))
 	val navController = rememberNavController()
 	NavHost(navController = navController, startDestination = "loading") {
 		composable("loading")  {
-			LoadingScreen(navController, model, scope)
+			LoadingScreen(navController, model)
 		}
-		composable("login/{message}") {
-			var msg = it.arguments?.getString("message") ?: ""
+		composable("login/{message}") { navStackEntry ->
+			var msg = navStackEntry.arguments?.getString("message") ?: ""
 			msg = URLDecoder.decode(msg, StandardCharsets.UTF_8.toString())
 			LoginScreen(navController, model, msg)
 		}
 		composable("map") {
-			MapView(navController, model, scope)
+			MapView(navController, model)
 		}
 		composable("contacts") {
-			Contacts(navController, model, scope)
+			Contacts(navController, model)
 		}
 		composable("myprofile") {
 			MyProfile(navController)
@@ -168,7 +131,7 @@ fun NavigationGraph(scope: CoroutineScope) {
 }
 
 @Composable
-fun LoadingScreen(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
+fun LoadingScreen(navController: NavController, model: MainViewModel) {
 	Box(
 		modifier = Modifier.fillMaxSize(),
 		contentAlignment = Alignment.Center
@@ -181,32 +144,32 @@ fun LoadingScreen(navController: NavController, model: MainViewModel, scope: Cor
 		model.inboxMan.launchCleanUp()
 		val cred = model.profileStore.cred.value
 		if (cred.username.isNotEmpty() && cred.passwd.isNotEmpty()) {
-			scope.launch(Dispatchers.IO) {
+			withContext(Dispatchers.IO) {
 				model.server.login().fold(
 					onSuccess = { needPrekeys ->
 						if (needPrekeys.value) {
-							scope.launch(Dispatchers.IO) {
-								model.server.addPreKeys()
-							}
+							model.server.addPreKeys()
 						}
 						withContext(Dispatchers.Main) {
 							navController.navigate("map") {
-								popUpTo(navController.graph.startDestinationId) { inclusive = true }
+								popUpTo("loading") { inclusive = true }
 							}
 						}
 					},
-					onFailure = {
-						Log.d("Locodile", "LoadingScreen: login failed: ${it.message}")
+					onFailure = { e ->
 						withContext(Dispatchers.Main) {
-							var msg = it.toString()
-							msg = URLEncoder.encode(msg, StandardCharsets.UTF_8.toString())
-							navController.navigate("login/${msg}")
+							val msg = URLEncoder.encode(e.toString(), StandardCharsets.UTF_8.toString())
+							navController.navigate("login/${msg}") {
+								popUpTo("loading") { inclusive = true }
+							}
 						}
 					}
 				)
 			}
 		} else {
-			navController.navigate("login/")
+			navController.navigate("login/") {
+				popUpTo("loading") { inclusive = true }
+			}
 		}
 	}
 }
@@ -229,10 +192,10 @@ fun LoginScreen(navController: NavController, model: MainViewModel, message: Str
 		) {
 			TextField(
 				value = username,
-				onValueChange = {
-					username = it
-					model.profileStore.launchEdit {
-						it.setCred(Credentials(username, passwd))
+				onValueChange = { newUsername ->
+					username = newUsername
+					model.profileStore.launchEdit { dao ->
+						dao.setCred(Credentials(newUsername, passwd))
 					}
 				},
 				label = { Text("Username") },
@@ -242,10 +205,10 @@ fun LoginScreen(navController: NavController, model: MainViewModel, message: Str
 			)
 			TextField(
 				value = passwd,
-				onValueChange = {
-					passwd = it
-					model.profileStore.launchEdit {
-						it.setCred(Credentials(username, passwd))
+				onValueChange = { newPasswd ->
+					passwd = newPasswd
+					model.profileStore.launchEdit { dao ->
+						dao.setCred(Credentials(username, newPasswd))
 					}
 				},
 				label = { Text("Password") },
@@ -257,7 +220,7 @@ fun LoginScreen(navController: NavController, model: MainViewModel, message: Str
 			Button(
 				onClick = {
 					navController.navigate("loading") {
-						popUpTo(navController.graph.startDestinationId) { inclusive = true }
+						popUpTo("login/") { inclusive = true }
 					}
 				},
 				enabled = username != "" && passwd != "",
@@ -283,7 +246,7 @@ fun LoginScreen(navController: NavController, model: MainViewModel, message: Str
 
 @SuppressLint("StateFlowValueCalledInComposition")
 @Composable
-fun MapView(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
+fun MapView(navController: NavController, model: MainViewModel) {
 	LifecycleResumeEffect(Unit) {
 		model.receiver.start()
 		onPauseOrDispose {
@@ -307,8 +270,8 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 					val isServiceRunning by LocationService.isRunning.collectAsState()
 					Switch(
 						checked = isServiceRunning,
-						onCheckedChange = {
-							if (it) {
+						onCheckedChange = { isOn ->
+							if (isOn) {
 								//model.requestIgnoreBatteryOptimization()
 								LocationService.start(context)
 							} else {
@@ -351,14 +314,14 @@ fun MapView(navController: NavController, model: MainViewModel, scope: Coroutine
 				}
 				val contacts by contactsFlow.collectAsState(emptyList())
 				val data by model.receiver.data.collectAsState()
-				var mapViewportState = rememberMapViewportState {}
+				val mapViewportState = rememberMapViewportState {}
 				MapboxMap(
 					Modifier.fillMaxSize(),
 					mapViewportState = mapViewportState,
 				) {
 					for (contact in contacts) {
 						val values = data[contact.id]
-						if (values == null || values.isEmpty()) {
+						if (values.isNullOrEmpty()) {
 							continue
 						}
 						PolylineAnnotation(
@@ -567,7 +530,8 @@ enum class AddContactState {
 }
 
 @Composable
-fun Contacts(navController: NavController, model: MainViewModel, scope: CoroutineScope) {
+fun Contacts(navController: NavController, model: MainViewModel) {
+	val scope = rememberCoroutineScope()
 	ScreenHeader("Contacts", navController) {
 		val contacts by model.contactsStore.flow().collectAsState(emptyList())
 		var itemToDel by remember { mutableStateOf<Contact?>(null) }
@@ -605,26 +569,26 @@ fun Contacts(navController: NavController, model: MainViewModel, scope: Coroutin
 								modifier = Modifier.padding(start = 10.dp, end = 10.dp),
 							)
 						}
-						Column(
-							horizontalAlignment = Alignment.CenterHorizontally
-						) {
-							Text(
-								text = "Receive",
-								style = TextStyle(fontSize = 8.sp)
-							)
-							Switch(
-								checked = contact.recv,
-								onCheckedChange = { value ->
-									model.contactsStore.launchEdit { store ->
-										store.setRecv(contact, value)
-									}
-								},
-								colors = SwitchDefaults.colors(
-									checkedTrackColor = Color(0.5f, 0.75f, 0.5f),
-								),
-								modifier = Modifier.padding(start = 10.dp, end = 10.dp),
-							)
-						}
+//						Column(
+//							horizontalAlignment = Alignment.CenterHorizontally
+//						) {
+//							Text(
+//								text = "Receive",
+//								style = TextStyle(fontSize = 8.sp)
+//							)
+//							Switch(
+//								checked = contact.recv,
+//								onCheckedChange = { value ->
+//									model.contactsStore.launchEdit { store ->
+//										store.setRecv(contact, value)
+//									}
+//								},
+//								colors = SwitchDefaults.colors(
+//									checkedTrackColor = Color(0.5f, 0.75f, 0.5f),
+//								),
+//								modifier = Modifier.padding(start = 10.dp, end = 10.dp),
+//							)
+//						}
 						Spacer(modifier = Modifier.width(10.dp))
 						Box(
 							contentAlignment = Alignment.CenterStart,
@@ -791,15 +755,15 @@ fun Settings(
 							closestDistance = distance
 						}
 					}
-					var sliderValue by remember { mutableStateOf(closestIndex.toFloat())}
+					var sliderValue by remember { mutableFloatStateOf(closestIndex.toFloat())}
 					var textValue by remember { mutableStateOf(shareFreqValues[closestIndex].second) }
 					Slider(
 						value = sliderValue,
 						onValueChange = { newValue ->
 							val sec = shareFreqValues[newValue.roundToInt()]
 							textValue = sec.second
-							model.settings.launchEdit {
-								it.setShareFreq(SharingFrequency(sec.first))
+							model.settings.launchEdit { dao ->
+								dao.setShareFreq(SharingFrequency(sec.first))
 							}
 							sliderValue = newValue
 						},
@@ -807,7 +771,7 @@ fun Settings(
 						steps = shareFreqValues.size - 2,
 						modifier = Modifier.fillMaxWidth(),
 					)
-					Text("Every ${textValue}")
+					Text("Every $textValue")
 					Spacer(modifier = Modifier.height(5.dp))
 					Text("Note: The more frequent the updates, the more battery usage.")
 				}

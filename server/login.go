@@ -6,9 +6,10 @@ import (
 )
 
 type LoginRequest struct {
-	Username string      `json:"username"`
-	Passwd   Base64Bytes `json:"passwd"`
-	Key      string      `json:"key"`
+	Username   string      `json:"username"`
+	Passwd     Base64Bytes `json:"passwd"`
+	SigningKey string      `json:"sig_key"`    // public key for SigningKey
+	MasterKey  string      `json:"master_key"` // master public key for diffie-hellman key exchange
 
 	Response chan<- LoginResponse `json:"-"`
 }
@@ -61,24 +62,26 @@ func login_http_handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func login_synchronized_handler(user *User, req LoginRequest) LoginResponse {
+	if req.SigningKey != user.SigningKey || req.MasterKey != user.MasterKey {
+		// user changed their keys
+		user.SigningKey = req.SigningKey
+		user.MasterKey = req.MasterKey
+		user.Prekeys = user.Prekeys[:0]
+		user.Inbox.clear()
+		user.Sn++
+		user.EncryptedID = UserID{Id: user.Id, Sn: user.Sn}.encrypt()
+	}
+
 	var err error
-	user.Bearer, err = makeBearer(user.Id)
+	user.Bearer, err = makeBearer(user.EncryptedID)
 	if err != nil {
 		return LoginResponse{
 			Err: NewError("login: creating bearer", http.StatusInternalServerError),
 		}
 	}
 
-	if req.Key != user.Key {
-		// user changed their signing key
-		user.Key = req.Key
-		// all prekeys are signed with the old key, so they are invalid
-		user.Prekeys = user.Prekeys[:0]
-		// TODO - should we clear the inbox?
-	}
-
 	// persist the new credentials
-	user.save_user()
+	user.save()
 
 	return LoginResponse{
 		Bearer:      user.Bearer,

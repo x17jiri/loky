@@ -85,8 +85,8 @@ class SettingsDataStoreStore(
 	}
 
 	override suspend fun setShareFreq(freq: SharingFrequency) {
-		__dataStore.edit {
-			it[__shareFreqKey] = freq.ms.toString()
+		__dataStore.edit { preferences ->
+			preferences[__shareFreqKey] = freq.ms.toString()
 		}
 		__shareFreq.value = freq
 	}

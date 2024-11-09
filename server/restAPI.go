@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 )
@@ -23,7 +22,7 @@ func NewError(err string, code int) *RestAPIError {
 func restAPIerror(w http.ResponseWriter, err *RestAPIError) {
 	msg := err.Error()
 	code := err.Code
-	fmt.Println(msg)
+	Log.e(msg)
 	http.Error(w, msg, code)
 }
 
@@ -38,8 +37,8 @@ func restAPI_handler[
 	maxRequestSize int64,
 	handler func(*User, Request) (Response, *RestAPIError),
 ) {
-	fmt.Println("=================================================================================")
-	fmt.Println(monotonicSeconds(), handlerName)
+	Log.d("=================================================================================")
+	Log.d("%d %s", monotonicSeconds(), handlerName)
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
 
 	authHeader := r.Header.Get("Authorization")

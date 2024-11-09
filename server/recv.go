@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 )
 
@@ -33,7 +32,7 @@ func recv_restAPI_handler(user *User, req RecvRequest) (RecvResponse, *RestAPIEr
 
 func recv_synchronized_handler(user *User) RecvResponse {
 	msgs, err := user.Inbox.getMessages(monotonicSeconds())
-	fmt.Println("msgs.count = ", len(msgs))
+	Log.d("msgs.count = %d", len(msgs))
 	return RecvResponse{
 		Items: msgs,
 		Err:   err,

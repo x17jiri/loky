@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 )
 
@@ -29,7 +28,7 @@ func send_restAPI_handler(user *User, req SendRequest) (SendResponse, *RestAPIEr
 
 	var err *RestAPIError = nil
 
-	fmt.Println("msg count = ", len(req.Items))
+	Log.d("msg count = %d", len(req.Items))
 	now := monotonicSeconds()
 	from := user.Id.toString()
 	users := usersList.Load()
@@ -72,8 +71,6 @@ type PutResponse struct {
 }
 
 func put_synchronized_handler(user *User, req PutRequest) PutResponse {
-	fmt.Println("put msg from ", req.Message.From, " to ", user.Username)
-	fmt.Println("type: ", req.Message.Type, " msg: ", req.Message.Msg[:30], "...")
 	return PutResponse{
 		Err: user.Inbox.addMessage(&req.Message),
 	}

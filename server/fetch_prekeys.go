@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 )
 
@@ -57,10 +56,10 @@ type FetchPrekeyResponse struct {
 	Prekey string
 }
 
-func fetchPrekey_synchronized_handler(user *User, req FetchPrekeyRequest) FetchPrekeyResponse {
+func fetchPrekey_synchronized_handler(user *User, _ FetchPrekeyRequest) FetchPrekeyResponse {
 	cnt := len(user.Prekeys)
 	if cnt > 0 {
-		fmt.Println("taking a prekey of ", user.Username)
+		Log.i("taking a prekey of %s", user.Username)
 		prekey := user.Prekeys[0]
 		user.Prekeys = shift(user.Prekeys, 1)
 		_ = user.save_user()
@@ -69,7 +68,7 @@ func fetchPrekey_synchronized_handler(user *User, req FetchPrekeyRequest) FetchP
 			Prekey: prekey,
 		}
 	} else {
-		fmt.Println("no prekeys for ", user.Username)
+		Log.i("no prekeys for %s", user.Username)
 		return FetchPrekeyResponse{
 			Prekey: "",
 		}

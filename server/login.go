@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 )
 
@@ -22,8 +21,8 @@ type LoginResponse struct {
 }
 
 func login_http_handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("=================================================================================")
-	fmt.Println("login_handler")
+	Log.i("=================================================================================")
+	Log.i("login_handler")
 	r.Body = http.MaxBytesReader(w, r.Body, 2048)
 
 	var req LoginRequest
@@ -33,8 +32,6 @@ func login_http_handler(w http.ResponseWriter, r *http.Request) {
 		restAPIerror(w, NewError(msg, http.StatusBadRequest))
 		return
 	}
-
-	fmt.Println("login_handler: req = ", req)
 
 	user := usersList.Load().userByName(req.Username)
 	if user == nil || !user.check_passwd(req.Passwd) {
@@ -51,7 +48,7 @@ func login_http_handler(w http.ResponseWriter, r *http.Request) {
 	resp := <-respChan
 
 	if resp.Err != nil {
-		msg := "login: error:" + resp.Err.Error()
+		msg := "login: error: " + resp.Err.Error()
 		restAPIerror(w, NewError(msg, http.StatusInternalServerError))
 		return
 	}

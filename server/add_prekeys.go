@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 )
 
@@ -41,12 +40,7 @@ func addPrekeys_synchronized_handler(user *User, req AddPrekeysRequest) AddPreke
 		}
 	}
 
-	fmt.Println("Current prekeys:", user.Prekeys)
-	fmt.Println("Adding prekeys:", req.Prekeys)
-
 	user.Prekeys = append(user.Prekeys, req.Prekeys...)
-
-	fmt.Println("New prekeys:", user.Prekeys)
 
 	_ = user.save_user()
 

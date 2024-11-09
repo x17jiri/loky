@@ -223,34 +223,34 @@ func load_users() (*Users, error) {
 	}
 	for _, dir := range dirs {
 		if !dir.IsDir() {
-			fmt.Println("load_users(): Not a dir: ", dir.Name())
+			Log.i("load_users(): Not a dir: %s", dir.Name())
 			continue
 		}
 		id, err := userIDFromString(dir.Name())
 		if err != nil {
-			fmt.Println("load_users(): Invalid user ID: ", dir.Name())
+			Log.i("load_users(): Invalid user ID: %s", dir.Name())
 			continue
 		}
 		if dir.Name() != id.toString() {
 			// This could happen if our user ID encoding uses lower case letters for hex digits
 			// and someone names the dir with upper case letters.
 			// On case-sensitive filesystems, this would be a problem.
-			fmt.Println(
-				"load_users(): Invalid user ID encoding: '" +
-					dir.Name() + "', expected: '" + id.toString() + "'",
+			Log.e(
+				"load_users(): Invalid user ID encoding: '%s', expected: '%s'",
+				dir.Name(), id.toString(),
 			)
 			continue
 		}
 		userDir := filepath.Join(topdir, dir.Name())
 		user, err := load_user(id, userDir)
 		if err != nil {
-			fmt.Println("load_users(): Error loading user: ", err)
+			Log.e("load_users(): Error loading user: %s", err.Error())
 			continue
 		}
 		users.name_map[user.Username] = user
 		users.id_map[id] = user
 
-		fmt.Println("User loaded: ", user.Username, ", ID: ", id.toString())
+		Log.i("User loaded: %s, ID: %s", user.Username, id.toString())
 	}
 	return users, nil
 }

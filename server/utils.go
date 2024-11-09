@@ -14,9 +14,6 @@ import (
 	"unsafe"
 )
 
-// 2000-01-01 00:00:00 UTC
-var referenceTime = time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
-
 type TimeRange struct {
 	From int64 `json:"from"`
 	To   int64 `json:"to"`
@@ -33,9 +30,6 @@ func (tr TimeRange) contains(t int64) bool {
 func (tr TimeRange) overlaps(other TimeRange) bool {
 	return tr.From < other.To && other.From < tr.To
 }
-
-const SWITCH_INBOX_SEC int64 = 30 * 60
-const MSG_EXPIRE_SEC int64 = 7200
 
 func monotonicSeconds() int64 {
 	return int64(time.Since(referenceTime).Seconds())

@@ -68,7 +68,6 @@ func (inbox *Inbox) addMessage(msg *Message) *RestAPIError {
 	// Make sure `Type` and `Data` don't contain any space or newline.
 	// We use these characters as separators in the inbox file format.
 	if strings.ContainsAny(msg.Type, " \n") || strings.ContainsAny(msg.Msg, " \n") {
-		fmt.Println("Invalid message: ", msg)
 		return NewError("invalid message", http.StatusBadRequest)
 	}
 
@@ -76,17 +75,15 @@ func (inbox *Inbox) addMessage(msg *Message) *RestAPIError {
 	inboxPart := inbox.getPart(msg.Time)
 
 	// Write the message to the inbox part
-	fmt.Println("Writing message to file: ", inboxPart.File)
+	Log.i("Writing message to file: %s", inboxPart.File)
 	f, err := os.OpenFile(inboxPart.File, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Println("Error opening file: ", err)
 		return NewError("opening file: "+err.Error(), http.StatusInternalServerError)
 	}
 	defer f.Close()
 
 	_, err = f.WriteString(fmt.Sprintf("%d %s %s %s\n", msg.Time, msg.From, msg.Type, msg.Msg))
 	if err != nil {
-		fmt.Println("Error writing to file: ", err)
 		return NewError("writing to file: "+err.Error(), http.StatusInternalServerError)
 	}
 
@@ -96,7 +93,7 @@ func (inbox *Inbox) addMessage(msg *Message) *RestAPIError {
 func (part *InboxPart) getMessages(now int64, messages []Message) []Message {
 	f, err := os.Open(part.File)
 	if err != nil {
-		fmt.Println("Error opening file: ", err)
+		Log.e("Error opening file: %s", err.Error())
 		return messages
 	}
 	defer f.Close()
@@ -108,17 +105,13 @@ func (part *InboxPart) getMessages(now int64, messages []Message) []Message {
 		_, err := fmt.Fscanf(f, "%d %s %s %s\n", &msg.Time, &msg.From, &msg.Type, &msg.Msg)
 		if err != nil {
 			if err.Error() != "EOF" {
-				fmt.Println("Error reading message: ", err)
+				Log.e("Error reading message: %s", err.Error())
 			}
 			break
 		}
 		if validRange.contains(msg.Time) {
 			msg.Time = now - msg.Time
 			messages = append(messages, msg)
-		} else {
-			fmt.Println("Ignoring expired message: ", msg)
-			fmt.Println("Valid range: ", validRange)
-			fmt.Println("Message time: ", msg.Time)
 		}
 	}
 	return messages
@@ -128,16 +121,41 @@ func (part *InboxPart) getMessages(now int64, messages []Message) []Message {
 // I.e., they are ready to be sent over the network.
 func (inbox *Inbox) getMessages(now int64) ([]Message, *RestAPIError) {
 	messages := make([]Message, 0)
-	for i, part := range inbox.Parts {
+	partCnt := len(inbox.Parts)
+	if partCnt == 0 {
+		return messages, nil
+	}
+
+	for i, part := range inbox.Parts[:partCnt-1] {
 		if part.canContainUnexpiredMessages(now) {
 			messages = part.getMessages(now, messages)
 		} else {
-			fmt.Println("Not using expired inbox part: ", part.File)
+			Log.i("Not using expired inbox part: %s", part.File)
 		}
 		_ = os.Remove(part.File)
 		inbox.Parts[i] = InboxPart{}
 	}
+
+	currentPart := inbox.Parts[partCnt-1]
+	inbox.Parts[partCnt-1] = InboxPart{}
 	inbox.Parts = inbox.Parts[:0]
+
+	if currentPart.canContainUnexpiredMessages(now) {
+		messages = currentPart.getMessages(now, messages)
+	} else {
+		Log.i("Not using expired inbox part: %s", currentPart.File)
+	}
+	truncated := false
+	if currentPart.canAdd(now) {
+		err := os.Truncate(currentPart.File, 0)
+		truncated = (err == nil)
+	}
+	if truncated {
+		inbox.Parts = append(inbox.Parts, currentPart)
+	} else {
+		_ = os.Remove(currentPart.File)
+	}
+
 	return messages, nil
 }
 

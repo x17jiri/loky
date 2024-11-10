@@ -27,7 +27,7 @@ class MainViewModel(context: Context): ViewModel() {
 	val recvChanStateStore = context.__recvChanStateStore
 	val settings = context.__settings
 	val server = context.__server
-	val receiver = Receiver(server, inboxMan, recvChanStateStore, viewModelScope)
+	val receiver = Receiver(server, inboxMan, settings, recvChanStateStore, viewModelScope)
 }
 
 class MainViewModelFactory(private val context: Context) : ViewModelProvider.Factory {

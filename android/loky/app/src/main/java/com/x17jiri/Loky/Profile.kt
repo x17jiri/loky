@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayInputStream
@@ -53,6 +54,36 @@ interface ProfileStoreDao {
 
 	suspend fun setMainKeys(sign: SigningKeyPair, master: DHKeyPair, owner: String) {
 		setMainKeys(MainKeys(sign, master, owner))
+	}
+}
+
+class ProfileStoreMock: ProfileStore, ProfileStoreDao {
+	private val __cred = MutableStateFlow(Credentials())
+	private val __bearer = MutableStateFlow("")
+	private val __mainKeys = MutableStateFlow(MainKeys())
+
+	override val cred: StateFlow<Credentials> = __cred
+	override val bearer: StateFlow<String> = __bearer
+	override val mainKeys: StateFlow<MainKeys> = __mainKeys
+
+	override suspend fun init() {
+	}
+
+	override suspend fun setCred(cred: Credentials) {
+		__cred.value = cred
+	}
+
+	override suspend fun setBearer(bearer: String) {
+		__bearer.value = bearer
+	}
+
+	override suspend fun setMainKeys(newKeys: MainKeys) {
+		__mainKeys.value = newKeys
+	}
+
+	override fun launchEdit(block: suspend (dao: ProfileStoreDao) -> Unit) {
+		val dao = this
+		runBlocking { block(dao) }
 	}
 }
 

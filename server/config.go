@@ -13,8 +13,11 @@ import (
 // 2000-01-01 00:00:00 UTC
 var referenceTime = time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-const SWITCH_INBOX_SEC int64 = 30 * 60
-const MSG_EXPIRE_SEC int64 = 2 * 60 * 60
+const MINUTE int64 = 60
+const HOUR int64 = 60 * MINUTE
+
+const SWITCH_INBOX_SEC int64 = 30 * MINUTE
+const MSG_EXPIRE_SEC int64 = 2 * HOUR
 
 const PREKEY_COUNT = 100
 const PREKEY_MAX_COUNT = 2 * PREKEY_COUNT

@@ -59,6 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -81,6 +83,9 @@ import com.mapbox.maps.extension.compose.annotation.IconImage
 import com.mapbox.maps.extension.compose.annotation.generated.PointAnnotation
 import com.mapbox.maps.extension.compose.annotation.generated.PolylineAnnotation
 import com.mapbox.maps.extension.compose.annotation.rememberIconImage
+import com.mapbox.maps.extension.style.layers.properties.generated.IconAnchor
+import com.mapbox.maps.extension.style.layers.properties.generated.TextAnchor
+import com.mapbox.maps.extension.style.layers.properties.generated.TextJustify
 import com.mapbox.maps.plugin.PuckBearing
 import com.mapbox.maps.plugin.locationcomponent.createDefault2DPuck
 import com.mapbox.maps.plugin.locationcomponent.location
@@ -113,7 +118,7 @@ fun NavigationGraph() {
 		composable("login/{message}") { navStackEntry ->
 			var msg = navStackEntry.arguments?.getString("message") ?: ""
 			msg = URLDecoder.decode(msg, StandardCharsets.UTF_8.toString())
-			LoginScreen(navController, model, msg)
+			LoginScreen(navController, model.profileStore, msg)
 		}
 		composable("map") {
 			MapView(navController, model)
@@ -125,23 +130,52 @@ fun NavigationGraph() {
 			MyProfile(navController)
 		}
 		composable("about") {
-			About(navController)
+			AboutScreen(navController)
 		}
 	}
 }
 
 @Composable
 fun LoadingScreen(navController: NavController, model: MainViewModel) {
-	Box(
-		modifier = Modifier.fillMaxSize(),
-		contentAlignment = Alignment.Center
-	) {
-		Text("Loading...", fontSize = 24.sp)
-	}
 	val context = LocalContext.current
+	Scaffold(
+		modifier = Modifier
+			.fillMaxSize()
+			.statusBarsPadding()
+			.navigationBarsPadding(),
+		topBar = {
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				modifier = Modifier.fillMaxWidth()
+			) {
+				Box {
+					val isServiceRunning by LocationService.isRunning.collectAsState()
+					Switch(
+						enabled = isServiceRunning,
+						checked = isServiceRunning,
+						onCheckedChange = {
+							LocationService.stop(context)
+						},
+						modifier = Modifier.padding(start = 10.dp, end = 10.dp),
+					)
+				}
+				Box(modifier = Modifier.weight(1.0f)) {
+					Text("Share location")
+				}
+			}
+		}
+	) { innerPadding ->
+		Box(
+			modifier = Modifier
+					.fillMaxSize()
+					.padding(innerPadding),
+			contentAlignment = Alignment.Center
+		) {
+			Text("Loading...", fontSize = 24.sp)
+		}
+	}
 	LaunchedEffect(Unit) {
 		context.init_singletons()
-		model.inboxMan.launchCleanUp()
 		val cred = model.profileStore.cred.value
 		if (cred.username.isNotEmpty() && cred.passwd.isNotEmpty()) {
 			withContext(Dispatchers.IO) {
@@ -174,74 +208,143 @@ fun LoadingScreen(navController: NavController, model: MainViewModel) {
 	}
 }
 
+
+
 @SuppressLint("StateFlowValueCalledInComposition")
 @Composable
-fun LoginScreen(navController: NavController, model: MainViewModel, message: String) {
-	val cred = model.profileStore.cred.value
+fun LoginScreen(navController: NavController, profileStore: ProfileStore, message: String) {
+	val cred = profileStore.cred.value
 	var username by remember { mutableStateOf(cred.username) }
 	var passwd by remember { mutableStateOf(cred.passwd) }
 	var failedDialog by remember { mutableStateOf(message) }
-	Column(
-		modifier = Modifier.fillMaxSize(),
-	) {
-		Column(
-			modifier = Modifier
-				.fillMaxWidth()
-				.weight(0.6f),
-			verticalArrangement = Arrangement.Center,
-		) {
-			TextField(
-				value = username,
-				onValueChange = { newUsername ->
-					username = newUsername
-					model.profileStore.launchEdit { dao ->
-						dao.setCred(Credentials(newUsername, passwd))
-					}
-				},
-				label = { Text("Username") },
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(10.dp)
-			)
-			TextField(
-				value = passwd,
-				onValueChange = { newPasswd ->
-					passwd = newPasswd
-					model.profileStore.launchEdit { dao ->
-						dao.setCred(Credentials(username, newPasswd))
-					}
-				},
-				label = { Text("Password") },
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(10.dp),
-				visualTransformation = PasswordVisualTransformation()
-			)
-			Button(
-				onClick = {
-					navController.navigate("loading") {
-						popUpTo("login/") { inclusive = true }
-					}
-				},
-				enabled = username != "" && passwd != "",
-				content = { Text("Login") },
-				modifier = Modifier
-					.fillMaxWidth()
-					.padding(10.dp)
-			)
-			if (failedDialog != "") {
-				MessageDialog(
-					failedDialog,
-					onDismiss = { failedDialog = "" }
-				)
+	val context = LocalContext.current
+	Scaffold(
+		modifier = Modifier
+			.fillMaxSize()
+			.statusBarsPadding()
+			.navigationBarsPadding(),
+		topBar = {
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				modifier = Modifier.fillMaxWidth()
+			) {
+				Box {
+					val isServiceRunning by LocationService.isRunning.collectAsState()
+					Switch(
+						enabled = isServiceRunning,
+						checked = isServiceRunning,
+						onCheckedChange = {
+							LocationService.stop(context)
+						},
+						modifier = Modifier.padding(start = 10.dp, end = 10.dp),
+					)
+				}
+				Box(modifier = Modifier.weight(1.0f)) {
+					Text("Share location")
+				}
 			}
 		}
-		Box(
+	) { innerPadding ->
+		Column(
 			modifier = Modifier
-				.fillMaxWidth()
-				.weight(0.4f),
-		)
+				.fillMaxSize()
+				.padding(innerPadding),
+		) {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.weight(0.6f),
+				verticalArrangement = Arrangement.Center,
+			) {
+				TextField(
+					value = username,
+					onValueChange = { newUsername ->
+						username = newUsername
+						profileStore.launchEdit { dao ->
+							dao.setCred(Credentials(newUsername, passwd))
+						}
+					},
+					label = { Text("Username") },
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(10.dp)
+				)
+				var passwordVisible by remember { mutableStateOf(false) }
+				TextField(
+					value = passwd,
+					onValueChange = { newPasswd ->
+						passwd = newPasswd
+						profileStore.launchEdit { dao ->
+							dao.setCred(Credentials(username, newPasswd))
+						}
+					},
+					label = { Text("Password") },
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(10.dp),
+					visualTransformation =
+						if (passwordVisible) {
+							VisualTransformation.None
+						} else {
+							PasswordVisualTransformation()
+						},
+					trailingIcon = {
+						val image =
+							if (passwordVisible) {
+								Icons.Filled.Visibility
+							} else {
+								Icons.Filled.VisibilityOff
+							}
+						val description = if (passwordVisible) "Hide password" else "Show password"
+						IconButton(onClick = { passwordVisible = !passwordVisible }) {
+							Icon(imageVector = image, contentDescription = description)
+						}
+					}
+				)
+				Button(
+					onClick = {
+						navController.navigate("loading") {
+							popUpTo("login/") { inclusive = true }
+						}
+					},
+					enabled = username != "" && passwd != "",
+					content = { Text("Login") },
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(10.dp)
+				)
+				if (failedDialog != "") {
+					MessageDialog(
+						failedDialog,
+						onDismiss = { failedDialog = "" }
+					)
+				}
+			}
+			Box(
+				modifier = Modifier
+					.fillMaxWidth()
+					.weight(0.4f),
+			)
+		}
 	}
+}
+
+fun prettyAge(_sec: Long): String {
+	var sec = _sec
+	if (sec < 60) {
+		return "${sec} sec"
+	}
+	var min = sec / 60
+	sec %= 60
+	if (min < 60) {
+		return "${min}:${sec.toString().padStart(2, '0')} min"
+	}
+	if (sec >= 30) {
+		min += 1
+	}
+	val hour = min / 60
+	min %= 60
+	return "${hour}:${min.toString().padStart(2, '0')} hour"
 }
 
 @SuppressLint("StateFlowValueCalledInComposition")
@@ -260,7 +363,8 @@ fun MapView(navController: NavController, model: MainViewModel) {
 	Scaffold(
 		modifier = Modifier
 			.fillMaxSize()
-			.statusBarsPadding().navigationBarsPadding(),
+			.statusBarsPadding()
+			.navigationBarsPadding(),
 		topBar = {
 			Row(
 				verticalAlignment = Alignment.CenterVertically,
@@ -313,12 +417,14 @@ fun MapView(navController: NavController, model: MainViewModel) {
 					list.filter { contact -> contact.recv }
 				}
 				val contacts by contactsFlow.collectAsState(emptyList())
-				val data by model.receiver.data.collectAsState()
+				val dataWithHeartbeat by model.receiver.dataWithHeartbeat.collectAsState()
 				val mapViewportState = rememberMapViewportState {}
 				MapboxMap(
 					Modifier.fillMaxSize(),
 					mapViewportState = mapViewportState,
 				) {
+					val now = dataWithHeartbeat.first
+					val data = dataWithHeartbeat.second
 					for (contact in contacts) {
 						val values = data[contact.id]
 						if (values.isNullOrEmpty()) {
@@ -331,12 +437,23 @@ fun MapView(navController: NavController, model: MainViewModel) {
 							lineWidth = 5.0
 						}
 
+						val lastMsg = values.last()
+						val age = now - lastMsg.timestamp
 						val marker: IconImage = rememberIconImage(R.drawable.red_marker)
 						PointAnnotation(
-							point = Point.fromLngLat(values.last().lon, values.last().lat)
+							point = Point.fromLngLat(lastMsg.lon, lastMsg.lat),
 						) {
 							iconImage = marker
 							iconSize = 1.5
+							iconOffset = listOf(0.0, -16.0)
+//							iconAnchor = IconAnchor.BOTTOM
+							textField = "${contact.name}\n${prettyAge(age)} ago"
+							textOffset = listOf(1.5, -3.5)
+							textJustify = TextJustify.LEFT
+							textAnchor = TextAnchor.TOP_LEFT
+							textColor = Color.Black
+							textHaloColor = Color.White
+							textHaloWidth = 2.0
 						}
 					}
 
@@ -417,7 +534,9 @@ fun ConfirmDialog(
 	Dialog(onDismissRequest = onDismiss) {
 		Surface {
 			Column(
-				modifier = Modifier.padding(20.dp).fillMaxWidth()
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
 			) {
 				Text(text)
 				Spacer(modifier = Modifier.height(20.dp))
@@ -451,7 +570,9 @@ fun MessageDialog(
 	Dialog(onDismissRequest = onDismiss) {
 		Surface {
 			Column(
-				modifier = Modifier.padding(20.dp).fillMaxWidth()
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
 			) {
 				Text(text)
 				Spacer(modifier = Modifier.height(20.dp))
@@ -477,7 +598,9 @@ fun AddContactDialog(
 	Dialog(onDismissRequest = onDismiss) {
 		Surface {
 			Column(
-				modifier = Modifier.padding(20.dp).fillMaxWidth()
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
 			) {
 				Text("Add contact")
 				Spacer(modifier = Modifier.height(20.dp))
@@ -515,7 +638,9 @@ fun InfoDialg(text: String) {
 	Dialog(onDismissRequest = { }) {
 		Surface {
 			Column(
-				modifier = Modifier.padding(20.dp).fillMaxWidth()
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
 			) {
 				Text(text)
 			}
@@ -553,7 +678,7 @@ fun Contacts(navController: NavController, model: MainViewModel) {
 							horizontalAlignment = Alignment.CenterHorizontally
 						) {
 							Text(
-								text = "Send",
+								text = "Share",
 								style = TextStyle(fontSize = 8.sp)
 							)
 							Switch(
@@ -865,7 +990,7 @@ fun MyProfile(navController: NavController) {
 }
 
 @Composable
-fun About(navController: NavController) {
+fun AboutScreen(navController: NavController) {
 	ScreenHeader("About", navController) {
 		Column(
 			modifier = Modifier
@@ -873,8 +998,8 @@ fun About(navController: NavController) {
 				.fillMaxWidth()
 				.verticalScroll(rememberScrollState())
 		) {
-			Text("x17 Loky version 0.1")
-			Text("commit: #TODO")
+			Text("x17 Loky version 0.2")
+			Text("commit: " + BuildConfig.GIT_COMMIT.take(16))
 			Spacer(modifier = Modifier.height(20.dp))
 			Text("(C) 2024 Jiri Bobek")
 		}
@@ -889,13 +1014,26 @@ fun NewUserDialogPreview() {
 		AddContactDialog({}, { _, _ -> })
 	}
 }*/
-/*
+
 @Preview(showBackground = true)
 @Composable
 fun LoginScreenPreview() {
 	X17LokyTheme {
 		val navController = rememberNavController()
-		LoginScreen(navController)
+		val profileStore = ProfileStoreMock()
+		profileStore.launchEdit { dao ->
+			dao.setCred(Credentials("jiri", "123"))
+		}
+		LoginScreen(navController, profileStore, "")
 	}
 }
-*/
+
+@Preview(showBackground = true)
+@Composable
+fun AboutScreenPreview() {
+	X17LokyTheme {
+		val navController = rememberNavController()
+		AboutScreen(navController)
+	}
+}
+

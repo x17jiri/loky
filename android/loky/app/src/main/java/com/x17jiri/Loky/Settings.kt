@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-class SharingFrequency(seconds: Double = 15.0) {
+class SharingFrequency(seconds: Double = 5.0) {
 	val seconds = max(5.0, min(180.0, seconds))
 	val secondsMin: Double get() = 0.9 * seconds
 	val secondsMax: Double get() = 1.1 * seconds
@@ -31,6 +31,7 @@ class SharingFrequency(seconds: Double = 15.0) {
 interface SettingsStore {
 	val shareFreq: StateFlow<SharingFrequency>
 	val lastKeyResend: StateFlow<Long>
+	val lastCleanUp: StateFlow<Long>
 
 	suspend fun init()
 
@@ -40,23 +41,26 @@ interface SettingsStore {
 interface SettingsStoreDao {
 	suspend fun setShareFreq(freq: SharingFrequency)
 	suspend fun setLastKeyResend(time: Long)
+	suspend fun setLastCleanUp(time: Long)
 }
 
 class SettingsDataStoreStore(
 	val __dataStore: DataStore<Preferences>,
 	val coroutineScope: CoroutineScope,
 ): SettingsStore, SettingsStoreDao {
-	companion object {
-		val __shareFreqKey: Preferences.Key<String> = stringPreferencesKey("settings.shareFreq")
-
-		val __lastKeyResendKey: Preferences.Key<String> = stringPreferencesKey("key.lastSwitch")
+	companion object K {
+		val shareFreq: Preferences.Key<String> = stringPreferencesKey("settings.shareFreq")
+		val lastKeyResend: Preferences.Key<String> = stringPreferencesKey("key.lastSwitch")
+		val lastCleanUp: Preferences.Key<String> = stringPreferencesKey("inbox.lastCleanUp")
 	}
 
 	val __shareFreq = MutableStateFlow(SharingFrequency())
 	val __lastKeyResend = MutableStateFlow(0L)
+	val __lastCleanUp = MutableStateFlow(0L)
 
 	override val shareFreq = __shareFreq
 	override val lastKeyResend = __lastKeyResend
+	override val lastCleanUp = __lastCleanUp
 
 	val __mutex = Mutex()
 	var __initialized = false
@@ -70,7 +74,7 @@ class SettingsDataStoreStore(
 
 			__dataStore.edit { preferences ->
 				// shareFreq
-				val ms = preferences[__shareFreqKey]?.toIntOrNull()
+				val ms = preferences[K.shareFreq]?.toIntOrNull()
 				__shareFreq.value =
 					if (ms != null) {
 						SharingFrequency(ms.toDouble() / 1000.0)
@@ -78,24 +82,32 @@ class SettingsDataStoreStore(
 						SharingFrequency()
 					}
 
-				// lastKeyResend
-				__lastKeyResend.value = preferences[__lastKeyResendKey]?.toLongOrNull() ?: 0
+				// lastKeyResend, lastCleanUp
+				__lastKeyResend.value = preferences[K.lastKeyResend]?.toLongOrNull() ?: 0
+				__lastCleanUp.value = preferences[K.lastCleanUp]?.toLongOrNull() ?: 0
 			}
 		}
 	}
 
 	override suspend fun setShareFreq(freq: SharingFrequency) {
 		__dataStore.edit { preferences ->
-			preferences[__shareFreqKey] = freq.ms.toString()
+			preferences[K.shareFreq] = freq.ms.toString()
 		}
 		__shareFreq.value = freq
 	}
 
 	override suspend fun setLastKeyResend(time: Long) {
 		__dataStore.edit { preferences ->
-			preferences[__lastKeyResendKey] = time.toString()
+			preferences[K.lastKeyResend] = time.toString()
 		}
 		__lastKeyResend.value = time
+	}
+
+	override suspend fun setLastCleanUp(time: Long) {
+		__dataStore.edit { preferences ->
+			preferences[K.lastCleanUp] = time.toString()
+		}
+		__lastCleanUp.value = time
 	}
 
 	override fun launchEdit(block: suspend (dao: SettingsStoreDao) -> Unit) {

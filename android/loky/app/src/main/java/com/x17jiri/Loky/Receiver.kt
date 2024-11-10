@@ -15,14 +15,19 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.timeout
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.time.Duration.Companion.seconds
 
 @Entity(
 	tableName = "inbox",
@@ -84,24 +89,33 @@ class InboxManager(
 class Receiver(
 	val server: ServerInterface,
 	val inbox: InboxManager,
+	val settings: SettingsStore,
 	stateStore: RecvChanStateStore,
 	val scope: CoroutineScope
 ) {
 	val data =
-		inbox.flow().map { messages ->
-			val now = monotonicSeconds()
-			val cutoff = now - DATA_EXPIRE_SEC
-			val newData: HashMap<String, MutableList<Message>> = HashMap()
+		inbox.flow()
+			.map { messages ->
+				val now = monotonicSeconds()
+				val cutoff = now - DATA_EXPIRE_SEC
+				val newData: HashMap<String, MutableList<Message>> = HashMap()
 
-			for (msg in messages) {
-				if (msg.timestamp > cutoff && msg.timestamp <= now) {
-					val list = newData.getOrPut(msg.from) { mutableListOf() }
-					list.add(msg)
+				for (msg in messages) {
+					if (msg.timestamp > cutoff && msg.timestamp <= now) {
+						val list = newData.getOrPut(msg.from) { mutableListOf() }
+						list.add(msg)
+					}
 				}
-			}
 
-			newData
-		}.stateIn(scope, SharingStarted.Eagerly, HashMap())
+				Pair(now, newData)
+			}
+			.stateIn(scope, SharingStarted.Eagerly, Pair(0L, HashMap()))
+	val heartbeat = MutableStateFlow<Long>(0)
+	val dataWithHeartbeat = data
+		.combine(heartbeat) { data, time ->
+			Pair(max(time, data.first), data.second)
+		}
+		.stateIn(scope, SharingStarted.Eagerly, Pair(0L, HashMap()))
 
 	val contacts = stateStore.flow().stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
@@ -112,9 +126,12 @@ class Receiver(
 			job = scope.launch {
 				var time = 0
 				while (isActive) {
+					val now = monotonicSeconds()
 					// clean up every 10 minutes
-					if (time >= 10*60) {
-						time = 0
+					if (abs(now - settings.lastCleanUp.value) >= 10*60) {
+						settings.launchEdit { dao ->
+							dao.setLastCleanUp(now)
+						}
 						inbox.launchCleanUp()
 					} else {
 						Log.d("Locodile", "recv BEFORE **")
@@ -128,9 +145,12 @@ class Receiver(
 									inbox.launchEdit { dao ->
 										dao.insertAll(list)
 									}
+								} else {
+									heartbeat.value = monotonicSeconds()
 								}
 							},
 							onFailure = { e ->
+								heartbeat.value = monotonicSeconds()
 								Log.d("Locodile", "recv onFailure")
 								Log.d("Locodile", "Receiver: e=$e")
 								Log.d("Locodile", "Receiver: e=${e.stackTraceToString()}")

@@ -20,7 +20,13 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
     buildTypes {
+        all {
+            buildConfigField("String", "GIT_COMMIT", "\"${getGitCommit()}\"")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -39,6 +45,14 @@ android {
     buildFeatures {
         compose = true
     }
+}
+
+fun String.execute(): String {
+    return Runtime.getRuntime().exec(this).inputStream.bufferedReader().readText().trim()
+}
+
+fun getGitCommit(): String {
+    return "git rev-parse HEAD".execute().trim()
 }
 
 dependencies {
@@ -70,8 +84,10 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
     implementation("com.google.android.gms:play-services-location:21.0.1")
-    implementation("androidx.room:room-runtime:2.5.0")
-    kapt("androidx.room:room-compiler:2.5.0")
+
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    kapt("androidx.room:room-compiler:2.6.1")
 
     //    implementation("com.google.maps.android:maps-compose:2.11.0")
 //    implementation("com.google.android.gms:play-services-maps:18.1.0")

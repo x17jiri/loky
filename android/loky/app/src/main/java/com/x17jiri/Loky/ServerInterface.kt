@@ -49,7 +49,8 @@ import kotlin.math.abs
 
 data class UserInfo(
 	val id: String,
-	val publicSigningKey: PublicSigningKey,
+	val signKey: PublicSigningKey,
+	val masterKey: PublicDHKey,
 )
 
 data class NeedPrekeys(val value: Boolean)
@@ -58,7 +59,7 @@ class ServerInterface(
 	context: Context,
 	val coroutineScope: CoroutineScope,
 ) {
-	private val server = "10.0.0.2:11443"
+	private val server = "loky.x17jiri.online:9443"
 	private var trustManager: X509TrustManager
 	private var sslContext: SSLContext
 	private val gson = Gson()
@@ -165,20 +166,19 @@ class ServerInterface(
 			val username = cred.username
 			val passwd = Base64.encode(Crypto.hash(Crypto.strToByteArray(cred.passwd)))
 
-			val signingKeys = profileStore.signingKeys.value
-			val keyPair: SigningKeyPair
-			Log.d("Locodile", "ServerInterface.login: signingKeys=$signingKeys")
-			Log.d("Locodile", "ServerInterface.login: signingKeys.keyPair=${signingKeys.keyPair}")
-			Log.d("Locodile", "ServerInterface.login: signingKeys.keyOwner=${signingKeys.keyOwner}")
-			Log.d("Locodile", "ServerInterface.login: username=$username")
-			if (signingKeys.keyPair != null && signingKeys.keyOwner == username) {
-				keyPair = signingKeys.keyPair
+			val mainKeys = profileStore.mainKeys.value
+			val signKeys: SigningKeyPair
+			val masterKeys: DHKeyPair
+			if (mainKeys.validFor(username)) {
+				signKeys = mainKeys.sign!!
+				masterKeys = mainKeys.master!!
 			} else {
 				try {
 					Log.d("Locodile", "ServerInterface.login: generating keys")
-					keyPair = SigningKeyPair.generate()
+					signKeys = SigningKeyPair.generate()
+					masterKeys = DHKeyPair.generate()
 					Log.d("Locodile", "ServerInterface.login: generated keys")
-					profileStore.setSigningKeys(keyPair, username)
+					profileStore.setMainKeys(signKeys, masterKeys, username)
 					Log.d("Locodile", "ServerInterface.login: saved keys")
 				} catch (e: Exception) {
 					Log.d("Locodile", "ServerInterface.login: e=$e")
@@ -189,7 +189,8 @@ class ServerInterface(
 			data class LoginRequest(
 				val username: String,
 				val passwd: String,
-				val key: String, // our public signing key
+				val sign_key: String, // our public signing key
+				val master_key: String, // our public master key for diffie-hellman key exchange
 			)
 
 			data class LoginResponse(
@@ -199,7 +200,12 @@ class ServerInterface(
 
 			restAPI<LoginRequest, LoginResponse>(
 				"https://$server/api/login",
-				LoginRequest(username, passwd, keyPair.public.toString()),
+				LoginRequest(
+					username,
+					passwd,
+					signKeys.public.toString(),
+					masterKeys.public.toString(),
+				),
 				useBearer = false,
 			).mapCatching { resp ->
 				profileStore.setBearer(resp.bearer)
@@ -216,14 +222,19 @@ class ServerInterface(
 
 			data class UserInfoResponse(
 				val id: String,
-				val key: String,
+				val sign_key: String,
+				val master_key: String,
 			)
 
 			restAPI<UserInfoRequest, UserInfoResponse>(
 				"https://$server/api/userInfo",
 				UserInfoRequest(username),
 			).mapCatching { resp ->
-				UserInfo(resp.id, PublicSigningKey.fromString(resp.key).getOrThrow())
+				UserInfo(
+					resp.id,
+					PublicSigningKey.fromString(resp.sign_key).getOrThrow(),
+					PublicDHKey.fromString(resp.master_key).getOrThrow(),
+				)
 			}
 		}
 	}
@@ -272,7 +283,7 @@ class ServerInterface(
 				val live_prekeys: List<String>,
 			)
 
-			val mySigningKeys = profileStore.signingKeys.value.keyPair
+			val mySigningKeys = profileStore.mainKeys.value.sign
 				?: return@generate Result.failure(Exception("No signing keys. Cannot sign prekeys."))
 
 			restAPI<AddPreKeysRequest, AddPreKeysResponse>(

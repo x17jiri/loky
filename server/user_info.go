@@ -16,7 +16,7 @@ type UserInfoRequest struct {
 
 type UserInfoResponse struct {
 	Id         string `json:"id"`
-	SigningKey string `json:"sig_key"`    // public key for SigningKey
+	SigningKey string `json:"sign_key"`   // public key for signing
 	MasterKey  string `json:"master_key"` // master public key for diffie-hellman key exchange
 
 	Err *RestAPIError `json:"-"`

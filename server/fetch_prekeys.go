@@ -16,7 +16,7 @@ type FetchPrekeysResponse struct {
 	Prekeys []string `json:"prekeys"`
 }
 
-func fetchPrekeys_restAPI_handler(user *User, req FetchPrekeysRequest) (FetchPrekeysResponse, *RestAPIError) {
+func fetchPrekeys_restAPI_handler(_ *User, req FetchPrekeysRequest) (FetchPrekeysResponse, *RestAPIError) {
 	respChan := make(chan FetchPrekeyResponse)
 	defer close(respChan)
 
@@ -26,18 +26,19 @@ func fetchPrekeys_restAPI_handler(user *User, req FetchPrekeysRequest) (FetchPre
 
 	users := usersList.Load()
 	for _, id := range req.Ids {
-		fromId, err := encryptedIDfromString(id)
+		encId, err := encryptedIDfromString(id)
 		if err != nil {
 			response.Prekeys = append(response.Prekeys, "")
 			continue
 		}
-		fromUser := users.userById(fromId.decrypt())
-		if fromUser == nil {
+		id := encId.decrypt()
+		user := users.userById(id)
+		if user == nil {
 			response.Prekeys = append(response.Prekeys, "")
 			continue
 		}
 
-		fromUser.FetchPrekey <- FetchPrekeyRequest{
+		user.FetchPrekey <- FetchPrekeyRequest{
 			Response: respChan,
 		}
 		resp := <-respChan

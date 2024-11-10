@@ -8,7 +8,7 @@ import (
 type LoginRequest struct {
 	Username   string      `json:"username"`
 	Passwd     Base64Bytes `json:"passwd"`
-	SigningKey string      `json:"sig_key"`    // public key for SigningKey
+	SigningKey string      `json:"sign_key"`   // public key for signing
 	MasterKey  string      `json:"master_key"` // master public key for diffie-hellman key exchange
 
 	Response chan<- LoginResponse `json:"-"`

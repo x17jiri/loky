@@ -641,12 +641,13 @@ fun Contacts(navController: NavController, model: MainViewModel) {
 							scope.launch(Dispatchers.IO) {
 								model.server.userInfo(userName).fold(
 									onSuccess = { userInfo ->
-										model.contactsStore.launchEdit { store ->
-											store.insert(
+										model.contactsStore.launchEdit { dao ->
+											dao.insert(
 												Contact(
 													id = userInfo.id,
 													name = userName,
-													publicSigningKey = userInfo.publicSigningKey,
+													signKey = userInfo.signKey,
+													masterKey = userInfo.masterKey,
 													send = false,
 													recv = true,
 												)

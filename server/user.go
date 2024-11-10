@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 )
 
@@ -73,9 +74,9 @@ func (id *EncryptedID) UnmarshalJSON(data []byte) error {
 }
 
 type User struct {
-	Id          uint64      `json:"-"` // used instead of username in all operations except login
+	Id          uint64      `json:"id"` // used instead of username in all operations except login
 	Sn          uint64      `json:"sn"`
-	EncryptedID EncryptedID `json:"-"`
+	EncryptedID EncryptedID `json:"enc_id"`
 
 	Username string      `json:"username"`
 	Salt     Base64Bytes `json:"salt"`   // salt for password hashing
@@ -84,7 +85,7 @@ type User struct {
 	// TODO - bearer should be verified with signature, we shouldn't store it
 	Bearer Bearer `json:"bearer"`
 
-	SigningKey string `json:"sig_key"`    // public key for SigningKey
+	SigningKey string `json:"sign_key"`   // public key for signing
 	MasterKey  string `json:"master_key"` // master public key for diffie-hellman key exchange
 
 	Prekeys     []string                `json:"prekeys"` // public keys for diffie-hellman key exchange
@@ -125,7 +126,7 @@ func usersDir() string {
 }
 
 func (user *User) userDir() string {
-	return filepath.Join(usersDir(), fmt.Sprintf("%019d", user.Id))
+	return filepath.Join(usersDir(), fmt.Sprintf("%020d", user.Id))
 }
 
 func (user *User) inboxDir() string {
@@ -232,18 +233,18 @@ func load_users() (*Users, error) {
 		return nil, err
 	}
 
-	users := &Users{
-		name_map: make(map[string]*User),
-		id_map:   make(map[uint64]*User),
-	}
+	users := newUsers()
 	for _, dir := range dirs {
 		if !dir.IsDir() {
 			Log.i("load_users(): Not a dir: %s", dir.Name())
 			continue
 		}
-		var id uint64
-		n, err := fmt.Sscanf(dir.Name(), "%019d", &id)
-		if err != nil || n != 1 {
+		if len(dir.Name()) != 20 {
+			Log.i("load_users(): Invalid user ID: %s", dir.Name())
+			continue
+		}
+		id, err := strconv.ParseUint(dir.Name(), 10, 64)
+		if err != nil {
 			Log.i("load_users(): Invalid user ID: %s", dir.Name())
 			continue
 		}
@@ -256,8 +257,9 @@ func load_users() (*Users, error) {
 		users.name_map[user.Username] = user
 		users.id_map[id] = user
 
-		encID := UserID{Id: id, Sn: user.Sn}.encrypt().toString()
-		Log.i("User loaded: %s, ID: %019d, encID: %s", user.Username, id, encID)
+		sn := user.Sn
+		encID := UserID{Id: id, Sn: sn}.encrypt().toString()
+		Log.i("User loaded: %s, ID: %020d, SN: %020d, encID: %s", user.Username, id, sn, encID)
 	}
 	return users, nil
 }
@@ -270,14 +272,14 @@ func addUser(users *Users, username string, passwd []byte) (*Users, error) {
 
 	salt, err := randBytes(16)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error generating salt: %s", err.Error())
 	}
 
 	hashed_passwd := __hash_passwd(passwd, salt)
 
 	id, err := config.genId()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error generating user ID: %s", err.Error())
 	}
 
 	user := &User{
@@ -308,12 +310,12 @@ func addUser(users *Users, username string, passwd []byte) (*Users, error) {
 	// mkdir
 	err = os.MkdirAll(user.inboxDir(), 0755)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating user dir: %s", err.Error())
 	}
 
 	err = user.save()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error saving user: %s", err.Error())
 	}
 
 	newUsers := users.shallow_clone()

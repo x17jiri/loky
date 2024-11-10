@@ -189,7 +189,7 @@ func (p *InboxPart) canContainUnexpiredMessages(now int64) bool {
 }
 
 func inboxFile(dir string, time int64) string {
-	return filepath.Join(dir, fmt.Sprintf("%019d", time))
+	return filepath.Join(dir, fmt.Sprintf("%020d", time))
 }
 
 func (user *User) loadInbox() error {

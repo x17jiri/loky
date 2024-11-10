@@ -92,12 +92,12 @@ func (cfg *Config) genId() (UserID, error) {
 	cfg.LastId = id
 	err := cfg.save()
 	if err != nil {
-		return UserID{}, err
+		return UserID{}, fmt.Errorf("error saving config: %s", err)
 	}
 
 	snBytes, err := randBytes(8)
 	if err != nil {
-		return UserID{}, err
+		return UserID{}, fmt.Errorf("error generating sn: %s", err)
 	}
 	sn := binary.LittleEndian.Uint64(snBytes)
 
@@ -110,19 +110,19 @@ func (cfg *Config) genId() (UserID, error) {
 func loadConfig(fn string) (Config, error) {
 	bytes, err := os.ReadFile(fn)
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("error reading config: %s", err)
 	}
 
 	cfg := Config{}
 	err = json.Unmarshal(bytes, &cfg)
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("error parsing config: %s", err)
 	}
 	cfg.Filename = fn
 
 	cfg.Aes, err = aes.NewCipher(cfg.AesKey.Key)
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("error creating cipher: %s", err)
 	}
 	if cfg.Aes.BlockSize() != 16 {
 		return Config{}, fmt.Errorf("invalid block size: %d", cfg.Aes.BlockSize())

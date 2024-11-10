@@ -9,9 +9,9 @@ func send_http_handler(w http.ResponseWriter, r *http.Request) {
 }
 
 type SendItem struct {
-	To   UserID `json:"to"`
-	Type string `json:"type"`
-	Msg  string `json:"msg"`
+	To   EncryptedID `json:"to"`
+	Type string      `json:"type"`
+	Msg  string      `json:"msg"`
 }
 
 type SendRequest struct {
@@ -33,7 +33,7 @@ func send_restAPI_handler(user *User, req SendRequest) (SendResponse, *RestAPIEr
 	from := user.EncryptedID.toString()
 	users := usersList.Load()
 	for _, item := range req.Items {
-		toUser := users.userById(item.To)
+		toUser := users.userById(item.To.decrypt())
 		if toUser == nil {
 			//err = NewError("User not found", http.StatusNotFound)
 			continue

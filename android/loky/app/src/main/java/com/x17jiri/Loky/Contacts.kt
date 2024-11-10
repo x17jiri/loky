@@ -33,7 +33,8 @@ data class Contact(
 	val name: String,
 	val send: Boolean,
 	val recv: Boolean,
-	val publicSigningKey: PublicSigningKey,
+	val signKey: PublicSigningKey,
+	val masterKey: PublicDHKey,
 )
 
 interface ContactsStore {
@@ -41,7 +42,7 @@ interface ContactsStore {
 
 	suspend fun setSend(contact: Contact, send: Boolean)
 	suspend fun setRecv(contact: Contact, recv: Boolean)
-	suspend fun updateSigningKey(contact: Contact, newSigningKey: PublicSigningKey)
+	suspend fun setKeys(contact: Contact, sign: PublicSigningKey, master: PublicDHKey)
 	suspend fun insert(contact: Contact)
 	suspend fun delete(contact: Contact)
 
@@ -69,8 +70,8 @@ class ContactsStoreMock(
 		__flow.update { contacts.values.toList() }
 	}
 
-	override suspend fun updateSigningKey(contact: Contact, newSigningKey: PublicSigningKey) {
-		contacts[contact.id] = contact.copy(publicSigningKey = newSigningKey)
+	override suspend fun setKeys(contact: Contact, sign: PublicSigningKey, master: PublicDHKey) {
+		contacts[contact.id] = contact.copy(signKey = sign, masterKey = master)
 		__flow.update { contacts.values.toList() }
 	}
 
@@ -102,17 +103,20 @@ class ContactDBEntity(
 	val name: String,
 	val send: Boolean,
 	val recv: Boolean,
-	val publicSigningKey: String,
+	val signKey: String,
+	val masterKey: String,
 ) {
 	fun toContact(): Contact? {
-		val signingKey = PublicSigningKey.fromString(this.publicSigningKey).getOrNull()
-		if (signingKey != null) {
+		val signKey = PublicSigningKey.fromString(this.signKey).getOrNull()
+		val masterKey = PublicDHKey.fromString(this.masterKey).getOrNull()
+		if (signKey != null && masterKey != null) {
 			return Contact(
 				id = this.id,
 				name = this.name,
 				send = this.send,
 				recv = this.recv,
-				publicSigningKey = signingKey
+				signKey = signKey,
+				masterKey = masterKey,
 			)
 		} else {
 			return null
@@ -128,8 +132,8 @@ interface ContactDao {
 	@Query("UPDATE contacts SET recv = :recv WHERE id = :id")
 	suspend fun setRecv(id: String, recv: Boolean)
 
-	@Query("UPDATE contacts SET publicSigningKey = :newKey WHERE id = :id")
-	suspend fun updateSigningKey(id: String, newKey: String)
+	@Query("UPDATE contacts SET signKey = :sign, masterKey = :master WHERE id = :id")
+	suspend fun setKeys(id: String, sign: String, master: String)
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun insertAll(vararg contacts: ContactDBEntity)
@@ -159,8 +163,8 @@ class ContactsDBStore(
 		dao.setRecv(contact.id, recv)
 	}
 
-	override suspend fun updateSigningKey(contact: Contact, newSigningKey: PublicSigningKey) {
-		dao.updateSigningKey(contact.id, newSigningKey.toString())
+	override suspend fun setKeys(contact: Contact, sign: PublicSigningKey, master: PublicDHKey) {
+		dao.setKeys(contact.id, sign.toString(), master.toString())
 	}
 
 	override suspend fun insert(contact: Contact) {
@@ -169,7 +173,8 @@ class ContactsDBStore(
 			name = contact.name,
 			send = contact.send,
 			recv = contact.recv,
-			publicSigningKey = contact.publicSigningKey.toString(),
+			signKey = contact.signKey.toString(),
+			masterKey = contact.masterKey.toString(),
 		)
 		dao.insertAll(dbEntity)
 	}

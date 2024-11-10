@@ -54,7 +54,7 @@ abstract class SendChanStateStore(
 			.map { newContactList ->
 				Log.d("Locodile **********", "map 222: newContactList: $newContactList")
 				val result = mutex.withLock {
-					val mySigningKeys = profile.signingKeys.value.keyPair
+					val mySigningKeys = profile.mainKeys.value.sign
 					if (mySigningKeys == null) {
 						return@withLock emptyList()
 					}
@@ -68,7 +68,7 @@ abstract class SendChanStateStore(
 									{ newState -> launchSave(contactID, newState) },
 								)
 							}
-							SendChan(contactID, mySigningKeys, contact.publicSigningKey, state)
+							SendChan(contactID, mySigningKeys, contact.signKey, state)
 						}
 				}
 				Log.d("Locodile **********", "map 333: result: $result")

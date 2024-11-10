@@ -26,15 +26,20 @@ data class Credentials(
 	val passwd: String = "",
 )
 
-data class SigningKeys(
-	val keyPair: SigningKeyPair? = null,
-	val keyOwner: String = "",
-)
+class MainKeys(
+	val sign: SigningKeyPair? = null,
+	val master: DHKeyPair? = null,
+	val owner: String = "",
+) {
+	fun validFor(username: String): Boolean {
+		return sign != null && master != null && owner == username
+	}
+}
 
 interface ProfileStore {
 	val cred: StateFlow<Credentials>
 	val bearer: StateFlow<String>
-	val signingKeys: StateFlow<SigningKeys>
+	val mainKeys: StateFlow<MainKeys>
 
 	suspend fun init();
 
@@ -44,10 +49,10 @@ interface ProfileStore {
 interface ProfileStoreDao {
 	suspend fun setCred(cred: Credentials)
 	suspend fun setBearer(bearer: String)
-	suspend fun setSigningKeys(newKeys: SigningKeys)
+	suspend fun setMainKeys(newKeys: MainKeys)
 
-	suspend fun setSigningKeys(keyPair: SigningKeyPair, owner: String) {
-		setSigningKeys(SigningKeys(keyPair, owner))
+	suspend fun setMainKeys(sign: SigningKeyPair, master: DHKeyPair, owner: String) {
+		setMainKeys(MainKeys(sign, master, owner))
 	}
 }
 
@@ -55,24 +60,26 @@ class ProfileDataStoreStore(
 	val __dataStore: DataStore<Preferences>,
 	val coroutineScope: CoroutineScope,
 ): ProfileStore, ProfileStoreDao {
-	companion object {
-		val __usernameKey: Preferences.Key<String> = stringPreferencesKey("login.username")
-		val __passwdKey: Preferences.Key<String> = stringPreferencesKey("login.passwd")
+	companion object K {
+		val username: Preferences.Key<String> = stringPreferencesKey("login.username")
+		val passwd: Preferences.Key<String> = stringPreferencesKey("login.passwd")
 
-		val __bearerKey: Preferences.Key<String> = stringPreferencesKey("login.bearer")
+		val bearer: Preferences.Key<String> = stringPreferencesKey("login.bearer")
 
-		val __publicKeyKey = stringPreferencesKey("key.public")
-		val __privateKeyKey = stringPreferencesKey("key.private")
-		val __keyOwnerKey = stringPreferencesKey("key.owner")
+		val signPublic = stringPreferencesKey("key.sign.public")
+		val signPrivate = stringPreferencesKey("key.sign.private")
+		val masterPublic = stringPreferencesKey("key.master.public")
+		val masterPrivate = stringPreferencesKey("key.master.private")
+		val owner = stringPreferencesKey("key.owner")
 	}
 
 	val __cred = MutableStateFlow(Credentials())
 	val __bearer = MutableStateFlow("")
-	val __signingKeys = MutableStateFlow(SigningKeys())
+	val __mainKeys = MutableStateFlow(MainKeys())
 
 	override val cred: StateFlow<Credentials> = __cred
 	override val bearer: StateFlow<String> = __bearer
-	override val signingKeys: StateFlow<SigningKeys> = __signingKeys
+	override val mainKeys: StateFlow<MainKeys> = __mainKeys
 
 	val __mutex = Mutex()
 	var __initialized = false
@@ -87,24 +94,35 @@ class ProfileDataStoreStore(
 			val preferences = __dataStore.data.first()
 			// cred
 			__cred.value = Credentials(
-				username = preferences[__usernameKey] ?: "",
-				passwd = preferences[__passwdKey] ?: "",
+				username = preferences[K.username] ?: "",
+				passwd = preferences[K.passwd] ?: "",
 			)
 
 			// bearer
-			__bearer.value = preferences[__bearerKey] ?: ""
+			__bearer.value = preferences[K.bearer] ?: ""
 
-			// signingKeys
-			val public = preferences[__publicKeyKey] ?: ""
-			val private = preferences[__privateKeyKey] ?: ""
-			val owner = preferences[__keyOwnerKey] ?: ""
+			// mainKeys
+			val signPublicStr = preferences[K.signPublic] ?: ""
+			val signPrivateStr = preferences[K.signPrivate] ?: ""
+			val masterPublicStr = preferences[K.masterPublic] ?: ""
+			val masterPrivateStr = preferences[K.masterPrivate] ?: ""
+			val owner = preferences[K.owner] ?: ""
 
-			val publicKey = PublicSigningKey.fromString(public).getOrNull()
-			val privateKey = PrivateSigningKey.fromString(private).getOrNull()
-			if (publicKey != null && privateKey != null && owner.isNotEmpty()) {
-				__signingKeys.value = SigningKeys(
-					keyPair = SigningKeyPair(publicKey, privateKey),
-					keyOwner = owner,
+			val signPublic = PublicSigningKey.fromString(signPublicStr).getOrNull()
+			val signPrivate = PrivateSigningKey.fromString(signPrivateStr).getOrNull()
+			val masterPublic = PublicDHKey.fromString(masterPublicStr).getOrNull()
+			val masterPrivate = PrivateDHKey.fromString(masterPrivateStr).getOrNull()
+			if (
+				signPublic != null
+				&& signPrivate != null
+				&& masterPublic != null
+				&& masterPrivate != null
+				&& owner.isNotEmpty()
+			) {
+				__mainKeys.value = MainKeys(
+					sign = SigningKeyPair(signPublic, signPrivate),
+					master = DHKeyPair(masterPublic, masterPrivate),
+					owner = owner,
 				)
 			}
 		}
@@ -114,8 +132,8 @@ class ProfileDataStoreStore(
 
 	override suspend fun setCred(cred: Credentials) {
 		__dataStore.edit { preferences ->
-			preferences[__usernameKey] = cred.username
-			preferences[__passwdKey] = cred.passwd
+			preferences[K.username] = cred.username
+			preferences[K.passwd] = cred.passwd
 		}
 		__cred.value = cred
 	}
@@ -124,26 +142,34 @@ class ProfileDataStoreStore(
 
 	override suspend fun setBearer(bearer: String) {
 		__dataStore.edit { preferences ->
-			preferences[__bearerKey] = bearer
+			preferences[K.bearer] = bearer
 		}
 		__bearer.value = bearer
 	}
 
 	//-- signingKeys: SigningKeys
 
-	override suspend fun setSigningKeys(newKeys: SigningKeys) {
+	override suspend fun setMainKeys(newKeys: MainKeys) {
 		__dataStore.edit { preferences ->
-			if (newKeys.keyPair != null && newKeys.keyOwner != "") {
-				preferences[__publicKeyKey] = newKeys.keyPair.public.toString()
-				preferences[__privateKeyKey] = newKeys.keyPair.private.toString()
-				preferences[__keyOwnerKey] = newKeys.keyOwner
+			if (
+				newKeys.sign != null
+				&& newKeys.master != null
+				&& newKeys.owner != ""
+			) {
+				preferences[K.signPublic] = newKeys.sign.public.toString()
+				preferences[K.signPrivate] = newKeys.sign.private.toString()
+				preferences[K.masterPublic] = newKeys.master.public.toString()
+				preferences[K.masterPrivate] = newKeys.master.private.toString()
+				preferences[K.owner] = newKeys.owner
 			} else {
-				preferences[__publicKeyKey] = ""
-				preferences[__privateKeyKey] = ""
-				preferences[__keyOwnerKey] = ""
+				preferences[K.signPublic] = ""
+				preferences[K.signPrivate] = ""
+				preferences[K.masterPublic] = ""
+				preferences[K.masterPrivate] = ""
+				preferences[K.owner] = ""
 			}
 		}
-		__signingKeys.value = newKeys
+		__mainKeys.value = newKeys
 	}
 
 	//--

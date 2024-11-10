@@ -55,7 +55,7 @@ abstract class RecvChanStateStore(
 									{ newState -> launchSave(contactID, newState) },
 								)
 							}
-							RecvChan(contactID, keyStore, contact.publicSigningKey, state)
+							RecvChan(contactID, keyStore, contact.signKey, state)
 						}
 						.associateBy { it.id }
 				}

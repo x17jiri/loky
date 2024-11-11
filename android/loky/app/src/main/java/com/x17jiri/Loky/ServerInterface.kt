@@ -55,10 +55,60 @@ data class UserInfo(
 
 data class NeedPrekeys(val value: Boolean)
 
-class ServerInterface(
+interface ServerInterface {
+	suspend fun login(username: String, passwd: String): Result<NeedPrekeys>
+	suspend fun userInfo(username: String): Result<UserInfo>
+	suspend fun fetchPreKeys(contacts: List<SendChan>): Result<
+		List<Pair<SendChan, SignedPublicDHKey?>>
+	>
+	suspend fun addPreKeys()
+	suspend fun sendLoc(
+		loc: Location,
+		contacts: List<SendChan>,
+		forceKeyResend: Boolean = false,
+	): Result<NeedPrekeys>
+	suspend fun recv(
+		contacts: Map<String, RecvChan>
+	): Result<Pair<List<Message>, NeedPrekeys>>
+}
+
+class ServerInterfaceMock: ServerInterface {
+	override suspend fun login(username: String, passwd: String): Result<NeedPrekeys> {
+		return Result.failure(Exception("Not implemented"))
+	}
+
+	override suspend fun userInfo(username: String): Result<UserInfo> {
+		return Result.failure(Exception("Not implemented"))
+	}
+
+	override suspend fun fetchPreKeys(contacts: List<SendChan>): Result<
+		List<Pair<SendChan, SignedPublicDHKey?>>
+	> {
+		return Result.failure(Exception("Not implemented"))
+	}
+
+	override suspend fun addPreKeys() {
+	}
+
+	override suspend fun sendLoc(
+		loc: Location,
+		contacts: List<SendChan>,
+		forceKeyResend: Boolean,
+	): Result<NeedPrekeys> {
+		return Result.failure(Exception("Not implemented"))
+	}
+
+	override suspend fun recv(
+		contacts: Map<String, RecvChan>
+	): Result<Pair<List<Message>, NeedPrekeys>> {
+		return Result.failure(Exception("Not implemented"))
+	}
+}
+
+class ServerInterfaceImpl(
 	context: Context,
 	val coroutineScope: CoroutineScope,
-) {
+): ServerInterface {
 	private val server = "loky.x17jiri.online:9443"
 	private var trustManager: X509TrustManager
 	private var sslContext: SSLContext
@@ -157,14 +207,14 @@ class ServerInterface(
 		return res
 	}
 
-	suspend fun login(): Result<NeedPrekeys> {
+	override suspend fun login(username: String, passwd: String): Result<NeedPrekeys> {
 		return withContext(Dispatchers.IO) {
+			profileStore.getDao().setCred(Credentials(username, passwd))
+
 			// Note: the password hash is not used for security.
 			// It is used so we can limit message size on the server side
 			// without limiting the password size.
-			val cred = profileStore.cred.value
-			val username = cred.username
-			val passwd = Base64.encode(Crypto.hash(Crypto.strToByteArray(cred.passwd)))
+			val hashed_passwd = Base64.encode(Crypto.hash(Crypto.strToByteArray(passwd)))
 
 			val mainKeys = profileStore.mainKeys.value
 			val signKeys: SigningKeyPair
@@ -178,7 +228,7 @@ class ServerInterface(
 					signKeys = SigningKeyPair.generate()
 					masterKeys = DHKeyPair.generate()
 					Log.d("Locodile", "ServerInterface.login: generated keys")
-					profileStore.setMainKeys(signKeys, masterKeys, username)
+					profileStore.getDao().setMainKeys(signKeys, masterKeys, username)
 					Log.d("Locodile", "ServerInterface.login: saved keys")
 				} catch (e: Exception) {
 					Log.d("Locodile", "ServerInterface.login: e=$e")
@@ -202,19 +252,19 @@ class ServerInterface(
 				"https://$server/api/login",
 				LoginRequest(
 					username,
-					passwd,
+					hashed_passwd,
 					signKeys.public.toString(),
 					masterKeys.public.toString(),
 				),
 				useBearer = false,
 			).mapCatching { resp ->
-				profileStore.setBearer(resp.bearer)
+				profileStore.getDao().setBearer(resp.bearer)
 				NeedPrekeys(resp.needPrekeys)
 			}
 		}
 	}
 
-	suspend fun userInfo(username: String): Result<UserInfo> {
+	override suspend fun userInfo(username: String): Result<UserInfo> {
 		return withContext(Dispatchers.IO) {
 			data class UserInfoRequest(
 				val username: String,
@@ -239,7 +289,7 @@ class ServerInterface(
 		}
 	}
 
-	suspend fun fetchPreKeys(contacts: List<SendChan>): Result<
+	override suspend fun fetchPreKeys(contacts: List<SendChan>): Result<
 		List<Pair<SendChan, SignedPublicDHKey?>>
 	> {
 		return withContext(Dispatchers.IO) {
@@ -273,7 +323,7 @@ class ServerInterface(
 		}
 	}
 
-	suspend fun addPreKeys() {
+	override suspend fun addPreKeys() {
 		preKeyStore.generate { newKeys ->
 			data class AddPreKeysRequest(
 				val prekeys: List<String>,
@@ -298,10 +348,10 @@ class ServerInterface(
 		}
 	}
 
-	suspend fun sendLoc(
+	override suspend fun sendLoc(
 		loc: Location,
 		contacts: List<SendChan>,
-		forceKeyResend: Boolean = false,
+		forceKeyResend: Boolean,
 	): Result<NeedPrekeys> {
 		if (contacts.isEmpty()) {
 			return Result.success(NeedPrekeys(false))
@@ -333,7 +383,7 @@ class ServerInterface(
 			Log.d("Locodile", "ServerInterface.sendLoc: forceKeyResend=$forceKeyResend")
 			Log.d("Locodile", "ServerInterface.sendLoc: contacts=$contacts")
 			if (forceKeyResend || now !in lastKeyResend until nextKeyResend) {
-				settingsStore.lastKeyResend.value = now
+				settingsStore.getDao().setLastKeyResend(now)
 
 				// Try to change keys if the time has come
 				val toChange = contacts.filter { contact -> contact.shouldChangeKeys(now) }
@@ -387,7 +437,9 @@ class ServerInterface(
 		}
 	}
 
-	suspend fun recv(contacts: Map<String, RecvChan>): Result<Pair<List<Message>, NeedPrekeys>> {
+	override suspend fun recv(
+		contacts: Map<String, RecvChan>
+	): Result<Pair<List<Message>, NeedPrekeys>> {
 		if (contacts.isEmpty()) {
 			return Result.success(Pair(emptyList(), NeedPrekeys(false)))
 		}

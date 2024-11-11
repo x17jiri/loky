@@ -14,6 +14,20 @@ import javax.crypto.KeyAgreement
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
+class PublicKeyMock: PublicKey {
+	override fun getAlgorithm(): String {
+		return "Mock"
+	}
+
+	override fun getEncoded(): ByteArray {
+		return ByteArray(0)
+	}
+
+	override fun getFormat(): String {
+		return "Mock"
+	}
+}
+
 class PublicECKey(val key: PublicKey) {
 	companion object {
 		val PREFIX = "=ec:pub:"

@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -50,11 +51,9 @@ interface ContactsStore {
 }
 
 class ContactsStoreMock(
-	val contacts: MutableMap<String, Contact> = mutableMapOf<String, Contact>(),
-	val coroutineScope: CoroutineScope = GlobalScope,
+	val contacts: MutableMap<String, Contact> = mutableMapOf<String, Contact>()
 ): ContactsStore {
 	val __flow = MutableStateFlow(contacts.values.toList())
-	val __mutex = Mutex()
 
 	override fun flow(): Flow<List<Contact>> {
 		return __flow
@@ -86,10 +85,8 @@ class ContactsStoreMock(
 	}
 
 	override fun launchEdit(block: suspend (ContactsStore) -> Unit) {
-		coroutineScope.launch {
-			__mutex.withLock {
-				block(this@ContactsStoreMock)
-			}
+		runBlocking {
+			block(this@ContactsStoreMock)
 		}
 	}
 }

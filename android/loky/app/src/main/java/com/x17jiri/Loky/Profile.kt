@@ -44,6 +44,19 @@ interface ProfileStore {
 
 	suspend fun init();
 
+	fun isLoggedIn(): Boolean {
+		val cred = cred.value
+		val bearer = bearer.value
+		val mainKeys = mainKeys.value
+		return (
+				cred.username.isNotEmpty()
+						&& cred.passwd.isNotEmpty()
+						&& bearer.isNotEmpty()
+						&& mainKeys.validFor(cred.username)
+				)
+	}
+
+	fun getDao(): ProfileStoreDao
 	fun launchEdit(block: suspend (dao: ProfileStoreDao) -> Unit)
 }
 
@@ -79,6 +92,10 @@ class ProfileStoreMock: ProfileStore, ProfileStoreDao {
 
 	override suspend fun setMainKeys(newKeys: MainKeys) {
 		__mainKeys.value = newKeys
+	}
+
+	override fun getDao(): ProfileStoreDao {
+		return this
 	}
 
 	override fun launchEdit(block: suspend (dao: ProfileStoreDao) -> Unit) {
@@ -204,6 +221,10 @@ class ProfileDataStoreStore(
 	}
 
 	//--
+
+	override fun getDao(): ProfileStoreDao {
+		return this
+	}
 
 	override fun launchEdit(block: suspend (dao: ProfileStoreDao) -> Unit) {
 		coroutineScope.launch {

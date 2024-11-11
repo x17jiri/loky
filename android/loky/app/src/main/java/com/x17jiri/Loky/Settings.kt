@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -35,6 +36,7 @@ interface SettingsStore {
 
 	suspend fun init()
 
+	fun getDao(): SettingsStoreDao
 	fun launchEdit(block: suspend (dao: SettingsStoreDao) -> Unit)
 }
 
@@ -42,6 +44,36 @@ interface SettingsStoreDao {
 	suspend fun setShareFreq(freq: SharingFrequency)
 	suspend fun setLastKeyResend(time: Long)
 	suspend fun setLastCleanUp(time: Long)
+}
+
+class SettingsStoreMock: SettingsStore, SettingsStoreDao {
+	override val shareFreq = MutableStateFlow(SharingFrequency())
+	override val lastKeyResend = MutableStateFlow(0L)
+	override val lastCleanUp = MutableStateFlow(0L)
+
+	override suspend fun init() {}
+
+	override fun getDao(): SettingsStoreDao {
+		return this
+	}
+
+	override fun launchEdit(block: suspend (dao: SettingsStoreDao) -> Unit) {
+		runBlocking {
+			block(this@SettingsStoreMock)
+		}
+	}
+
+	override suspend fun setShareFreq(freq: SharingFrequency) {
+		shareFreq.value = freq
+	}
+
+	override suspend fun setLastKeyResend(time: Long) {
+		lastKeyResend.value = time
+	}
+
+	override suspend fun setLastCleanUp(time: Long) {
+		lastCleanUp.value = time
+	}
 }
 
 class SettingsDataStoreStore(
@@ -108,6 +140,10 @@ class SettingsDataStoreStore(
 			preferences[K.lastCleanUp] = time.toString()
 		}
 		__lastCleanUp.value = time
+	}
+
+	override fun getDao(): SettingsStoreDao {
+		return this
 	}
 
 	override fun launchEdit(block: suspend (dao: SettingsStoreDao) -> Unit) {

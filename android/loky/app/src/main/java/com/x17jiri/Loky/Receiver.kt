@@ -86,6 +86,12 @@ class InboxManager(
 	}
 }
 
+data class DataWithHeartbeat(
+	val time: Long,
+	val ok: Boolean,
+	val data:  HashMap<String, MutableList<Message>>,
+)
+
 class Receiver(
 	val server: ServerInterface,
 	val inbox: InboxManager,
@@ -110,12 +116,15 @@ class Receiver(
 				Pair(now, newData)
 			}
 			.stateIn(scope, SharingStarted.Eagerly, Pair(0L, HashMap()))
-	val heartbeat = MutableStateFlow<Long>(0)
-	val dataWithHeartbeat = data
-		.combine(heartbeat) { data, time ->
-			Pair(max(time, data.first), data.second)
+	val heartbeat = MutableStateFlow<Pair<Long, Boolean>>(Pair(0, true))
+	val dataWithHeartbeat: StateFlow<DataWithHeartbeat> = data
+		.combine(heartbeat) { dt, heartbeat ->
+			val time = max(heartbeat.first, dt.first)
+			val ok = heartbeat.second || time > heartbeat.first + 10
+			val data = dt.second
+			DataWithHeartbeat(time, ok, data)
 		}
-		.stateIn(scope, SharingStarted.Eagerly, Pair(0L, HashMap()))
+		.stateIn(scope, SharingStarted.Eagerly, DataWithHeartbeat(0L, true, HashMap()))
 
 	val contacts = stateStore.flow().stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
@@ -146,11 +155,11 @@ class Receiver(
 										dao.insertAll(list)
 									}
 								} else {
-									heartbeat.value = monotonicSeconds()
+									heartbeat.value = Pair(monotonicSeconds(), true)
 								}
 							},
 							onFailure = { e ->
-								heartbeat.value = monotonicSeconds()
+								heartbeat.value = Pair(monotonicSeconds(), false)
 								Log.d("Locodile", "recv onFailure")
 								Log.d("Locodile", "Receiver: e=$e")
 								Log.d("Locodile", "Receiver: e=${e.stackTraceToString()}")

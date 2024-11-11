@@ -6,6 +6,9 @@ import androidx.room.Room
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlin.properties.ReadOnlyProperty
 import kotlin.reflect.KProperty
 
@@ -58,15 +61,15 @@ val Context.__database by SingletonBase { appContext, scope ->
 	).build()
 }
 
-val Context.__contactsStore by SingletonBase { appContext, scope ->
+val Context.__contactsStore by SingletonBase<ContactsStore> { appContext, scope ->
 	ContactsDBStore(appContext.__database.contactDao(), scope)
 }
 
-val Context.__preKeyStore by SingletonBase { appContext, scope ->
+val Context.__preKeyStore by SingletonBase<PreKeyStore> { appContext, scope ->
 	PreKeyDBStore(appContext.__database.preKeyDao(), scope)
 }
 
-val Context.__recvChanStateStore by SingletonBase { appContext, scope ->
+val Context.__recvChanStateStore by SingletonBase<RecvChanStateStore> { appContext, scope ->
 	RecvChanStateDBStore(
 		appContext.__contactsStore,
 		appContext.__preKeyStore,
@@ -75,7 +78,7 @@ val Context.__recvChanStateStore by SingletonBase { appContext, scope ->
 	)
 }
 
-val Context.__sendChanStateStore by SingletonBase { appContext, scope ->
+val Context.__sendChanStateStore by SingletonBase<SendChanStateStore> { appContext, scope ->
 	SendChanStateDBStore(
 		appContext.__profileStore,
 		appContext.__contactsStore,
@@ -84,21 +87,23 @@ val Context.__sendChanStateStore by SingletonBase { appContext, scope ->
 	)
 }
 
-val Context.__profileStore by SingletonBase { appContext, scope ->
+val Context.__profileStore by SingletonBase<ProfileStore> { appContext, scope ->
 	ProfileDataStoreStore(appContext.__dataStore, scope)
 }
 
-val Context.__server by SingletonBase { appContext, scope ->
-	ServerInterface(appContext, scope)
+val Context.__server by SingletonBase<ServerInterface> { appContext, scope ->
+	ServerInterfaceImpl(appContext, scope)
 }
 
-val Context.__inboxMan by SingletonBase { appContext, scope ->
+val Context.__inboxMan by SingletonBase<InboxManager> { appContext, scope ->
 	InboxManager(appContext.__database, scope)
 }
 
-val Context.__settings by SingletonBase { appContext, scope ->
+val Context.__settings by SingletonBase<SettingsStore> { appContext, scope ->
 	SettingsDataStoreStore(appContext.__dataStore, scope)
 }
+
+val __areSingletonsInitialized = MutableStateFlow(false)
 
 suspend fun Context.init_singletons() {
 	this.__profileStore.init()

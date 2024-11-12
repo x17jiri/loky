@@ -103,6 +103,7 @@ import com.x17jiri.Loky.screens.AboutScreen
 import com.x17jiri.Loky.screens.ContactsScreen
 import com.x17jiri.Loky.screens.LoginScreen
 import com.x17jiri.Loky.screens.MyProfileScreen
+import com.x17jiri.Loky.screens.RegisterScreen
 import com.x17jiri.Loky.screens.SettingsDialog
 
 class MainActivity: ComponentActivity() {
@@ -140,8 +141,11 @@ fun NavigationGraph() {
 			"login"
 		}
 	NavHost(navController = navController, startDestination = firstScreen) {
-		composable("login") { navStackEntry ->
+		composable("login") {
 			LoginScreen(navController, model.profileStore, model.server)
+		}
+		composable("reg") {
+			RegisterScreen(navController, model.profileStore, model.server)
 		}
 		composable("map") {
 			MapViewScreen(navController, model)

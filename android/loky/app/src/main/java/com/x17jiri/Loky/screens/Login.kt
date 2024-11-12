@@ -157,8 +157,7 @@ fun LoginScreen(
             HyperlinkButton(
                 text = "Register",
                 onClick = {
-                    errMessage = "TODO: Not implemented"
-                    //navController.navigate("register")
+                    navController.navigate("reg")
                 }
             )
         }

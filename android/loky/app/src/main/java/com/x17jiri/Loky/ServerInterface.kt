@@ -222,9 +222,11 @@ class ServerInterfaceImpl(
 
 			class RegisterResponse {}
 
+			val hashed_passwd = Base64.encode(Crypto.hash(Crypto.strToByteArray(passwd)))
+
 			restAPI<RegisterRequest, RegisterResponse>(
 				"https://$server/api/reg",
-				RegisterRequest(invitation, username, passwd),
+				RegisterRequest(invitation, username, hashed_passwd),
 				useBearer = false,
 			).mapCatching {
 				val needPrekeys = login(username, passwd).getOrThrow()

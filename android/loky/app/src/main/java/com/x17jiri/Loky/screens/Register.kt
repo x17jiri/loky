@@ -205,7 +205,7 @@ fun RegisterScreen(
 					)
 				}
 			},
-			enabled = username != "" && passwd != "",
+			enabled = username != "" && passwd != "" && passwd2 != "" && invitation != "",
 			content = { Text("Register") },
 			modifier = Modifier
 				.fillMaxWidth()

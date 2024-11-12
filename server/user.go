@@ -322,5 +322,7 @@ func addUser(users *Users, username string, passwd []byte) (*Users, error) {
 	newUsers.name_map[username] = user
 	newUsers.id_map[id.Id] = user
 
+	go user_handler(user)
+
 	return newUsers, nil
 }

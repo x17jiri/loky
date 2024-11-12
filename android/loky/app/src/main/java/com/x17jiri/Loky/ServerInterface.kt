@@ -56,6 +56,7 @@ data class UserInfo(
 data class NeedPrekeys(val value: Boolean)
 
 interface ServerInterface {
+	suspend fun register(invitation: String, username: String, passwd: String): Result<Unit>
 	suspend fun login(username: String, passwd: String): Result<NeedPrekeys>
 	suspend fun userInfo(username: String): Result<UserInfo>
 	suspend fun fetchPreKeys(contacts: List<SendChan>): Result<
@@ -73,6 +74,10 @@ interface ServerInterface {
 }
 
 class ServerInterfaceMock: ServerInterface {
+	override suspend fun register(invitation: String, username: String, passwd: String): Result<Unit> {
+		return Result.failure(Exception("Not implemented"))
+	}
+
 	override suspend fun login(username: String, passwd: String): Result<NeedPrekeys> {
 		return Result.failure(Exception("Not implemented"))
 	}
@@ -207,6 +212,29 @@ class ServerInterfaceImpl(
 		return res
 	}
 
+	override suspend fun register(invitation: String, username: String, passwd: String): Result<Unit> {
+		return withContext(Dispatchers.IO) {
+			data class RegisterRequest(
+				val invitation: String,
+				val username: String,
+				val passwd: String,
+			)
+
+			class RegisterResponse {}
+
+			restAPI<RegisterRequest, RegisterResponse>(
+				"https://$server/api/reg",
+				RegisterRequest(invitation, username, passwd),
+				useBearer = false,
+			).mapCatching {
+				val needPrekeys = login(username, passwd).getOrThrow()
+				if (needPrekeys.value) {
+					addPreKeys()
+				}
+			}
+		}
+	}
+
 	override suspend fun login(username: String, passwd: String): Result<NeedPrekeys> {
 		return withContext(Dispatchers.IO) {
 			profileStore.getDao().setCred(Credentials(username, passwd))
@@ -259,6 +287,9 @@ class ServerInterfaceImpl(
 				useBearer = false,
 			).mapCatching { resp ->
 				profileStore.getDao().setBearer(resp.bearer)
+				if (!profileStore.isLoggedIn()) {
+					throw Exception("Internal error: Login failed")
+				}
 				NeedPrekeys(resp.needPrekeys)
 			}
 		}

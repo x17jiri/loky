@@ -8,6 +8,7 @@ import (
 func main() {
 	create_cfg := flag.Bool("create-config", false, "create default config.json")
 	new_user := flag.String("new-user", "", "create new user with given username")
+	add_inv := flag.Int("add-inv", 0, "add n invitations to config")
 	flag.Parse()
 
 	config_json := "config.json"
@@ -31,6 +32,28 @@ func main() {
 		return
 	}
 	config = cfg
+
+	if *add_inv > 0 {
+		for i := 0; i < *add_inv; i++ {
+			code, err := randBytes(16)
+			if err != nil {
+				Log.e("Error generating invitation code: %s", err.Error())
+				return
+			}
+			inv := Invitation{
+				Code:   base64Encode(code),
+				UsedBy: "",
+			}
+			config.Invitations = append(config.Invitations, inv)
+		}
+		err = config.save()
+		if err != nil {
+			Log.e("Error saving config: %s", err.Error())
+			return
+		}
+		Log.i("Added %d invitations to config", *add_inv)
+		return
+	}
 
 	users, err := load_users()
 	if err != nil || users == nil {
@@ -64,6 +87,7 @@ func main() {
 	}
 
 	http.HandleFunc("/api/login", login_http_handler)
+	http.HandleFunc("/api/reg", reg_http_handler)
 	http.HandleFunc("/api/send", send_http_handler)
 	http.HandleFunc("/api/recv", recv_http_handler)
 	http.HandleFunc("/api/userInfo", userInfo_http_handler)

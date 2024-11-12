@@ -2,8 +2,8 @@
 <resources>
     <style name="Theme.X17Loky" parent="android:Theme.Material.Light.NoActionBar"/>
     <style name="Theme.X17Loky.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#FF404040</item>
-        <item name="windowSplashScreenIconBackgroundColor">@color/white</item>
+        <item name="windowSplashScreenBackground">#FF102040</item>
+        <item name="windowSplashScreenIconBackgroundColor">#FFFFFFFF</item>
         <item name="postSplashScreenTheme">@style/Theme.X17Loky</item>
     </style>
 </resources>

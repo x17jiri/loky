@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -70,111 +72,104 @@ fun LoginScreen(
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
-        Column(
+        Spacer(modifier = Modifier.height(20.dp))
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Welcome!")
+        }
+        Spacer(modifier = Modifier.height(20.dp))
+        TextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Username") },
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.6f),
-            verticalArrangement = Arrangement.Center,
-        ) {
-            TextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text("Username") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp)
-            )
-            var passwordVisible by remember { mutableStateOf(false) }
-            TextField(
-                value = passwd,
-                onValueChange = { passwd = it },
-                label = { Text("Password") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp),
-                visualTransformation =
-                if (passwordVisible) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                },
-                trailingIcon = {
-                    val image =
-                        if (passwordVisible) {
-                            Icons.Filled.Visibility
-                        } else {
-                            Icons.Filled.VisibilityOff
-                        }
-                    val description = if (passwordVisible) "Hide password" else "Show password"
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(imageVector = image, contentDescription = description)
+                .padding(10.dp)
+        )
+        var passwordVisible by remember { mutableStateOf(false) }
+        TextField(
+            value = passwd,
+            onValueChange = { passwd = it },
+            label = { Text("Password") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            visualTransformation =
+            if (passwordVisible) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            trailingIcon = {
+                val image =
+                    if (passwordVisible) {
+                        Icons.Filled.Visibility
+                    } else {
+                        Icons.Filled.VisibilityOff
                     }
+                val description = if (passwordVisible) "Hide password" else "Show password"
+                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Icon(imageVector = image, contentDescription = description)
                 }
-            )
-            Button(
-                onClick = {
-                    working = true
-                    coroutineScope.launch(Dispatchers.IO) {
-                        server.login(username, passwd).fold(
-                            onSuccess = { needPrekeys ->
-                                if (!profileStore.isLoggedIn()) {
-                                    errMessage = "Internal error: Login failed"
-                                } else {
-                                    if (needPrekeys.value) {
-                                        server.addPreKeys()
-                                    }
-                                    withContext(Dispatchers.Main) {
-                                        navController.navigate("map") {
-                                            popUpTo("login") { inclusive = true }
-                                        }
-                                    }
-                                }
-                            },
-                            onFailure = { e ->
-                                working = false
-                                errMessage = e.toString()
+            }
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+        Button(
+            onClick = {
+                working = true
+                coroutineScope.launch(Dispatchers.IO) {
+                    server.login(username, passwd).fold(
+                        onSuccess = { needPrekeys ->
+                            if (needPrekeys.value) {
+                                server.addPreKeys()
                             }
-                        )
-                    }
-                },
-                enabled = username != "" && passwd != "",
-                content = { Text("Login") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp)
-            )
-            Box(
-                modifier = Modifier.fillMaxWidth().padding(10.dp),
-                contentAlignment = Alignment.Center // Center the text inside the Box
-            ) {
-                Text("or")
-            }
-            Box(
-                modifier = Modifier.fillMaxWidth().padding(10.dp),
-                contentAlignment = Alignment.Center // Center the text inside the Box
-            ) {
-                HyperlinkButton(
-                    text = "Register",
-                    onClick = {
-                        errMessage = "TODO: Not implemented"
-                        //navController.navigate("register")
-                    }
-                )
-            }
-            if (errMessage != "") {
-                MessageDialog(
-                    errMessage,
-                    onDismiss = { errMessage = "" }
-                )
-            } else if (working) {
-                InfoDialg("Working...")
-            }
+                            withContext(Dispatchers.Main) {
+                                navController.navigate("map") {
+                                    popUpTo("login") { inclusive = true }
+                                }
+                            }
+                        },
+                        onFailure = { e ->
+                            working = false
+                            errMessage = e.toString()
+                        }
+                    )
+                }
+            },
+            enabled = username != "" && passwd != "",
+            content = { Text("Login") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp)
+        )
+        Box(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            contentAlignment = Alignment.Center // Center the text inside the Box
+        ) {
+            Text("or")
         }
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.4f),
-        )
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            contentAlignment = Alignment.Center // Center the text inside the Box
+        ) {
+            HyperlinkButton(
+                text = "Register",
+                onClick = {
+                    errMessage = "TODO: Not implemented"
+                    //navController.navigate("register")
+                }
+            )
+        }
+        if (errMessage != "") {
+            MessageDialog(
+                errMessage,
+                onDismiss = { errMessage = "" }
+            )
+        } else if (working) {
+            InfoDialg("Working...")
+        }
     }
 }
 

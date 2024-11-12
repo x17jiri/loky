@@ -25,17 +25,18 @@ const PREKEY_MAX_COUNT = 2 * PREKEY_COUNT
 
 var config Config
 
-type Invitation struct {
-	Code   string `json:"code"`
-	UsedBy string `json:"used_by"`
+type UsedInvitation struct {
+	Code string `json:"code"`
+	By   string `json:"by"`
 }
 
 type Config struct {
-	AesKey      AesKey       `json:"aes_key"`
-	LastId      uint64       `json:"last_id"`
-	Filename    string       `json:"-"`
-	Aes         cipher.Block `json:"-"`
-	Invitations []Invitation `json:"invitations"`
+	AesKey          AesKey           `json:"aes_key"`
+	LastId          uint64           `json:"last_id"`
+	Filename        string           `json:"-"`
+	Aes             cipher.Block     `json:"-"`
+	Invitations     []string         `json:"invitations"`
+	UsedInvitations []UsedInvitation `json:"used_invitations"`
 }
 
 var GlobalLock sync.Mutex = sync.Mutex{}

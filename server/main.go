@@ -40,11 +40,7 @@ func main() {
 				Log.e("Error generating invitation code: %s", err.Error())
 				return
 			}
-			inv := Invitation{
-				Code:   base64Encode(code),
-				UsedBy: "",
-			}
-			config.Invitations = append(config.Invitations, inv)
+			config.Invitations = append(config.Invitations, base64Encode(code))
 		}
 		err = config.save()
 		if err != nil {

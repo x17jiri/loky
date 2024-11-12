@@ -41,7 +41,7 @@ func reg_http_handler(w http.ResponseWriter, r *http.Request) {
 	// check if invitation is in config.Invitations
 	index := -1
 	for i, inv := range config.Invitations {
-		if inv.Code == req.Invitation && inv.UsedBy == "" {
+		if inv == req.Invitation {
 			index = i
 			break
 		}
@@ -54,8 +54,12 @@ func reg_http_handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// mark invitation as used
-	config.Invitations[index].UsedBy = req.Username
+	// remove invitation from config and log invitation usage
+	config.Invitations = append(config.Invitations[:index], config.Invitations[index+1:]...)
+	config.UsedInvitations = append(config.UsedInvitations, UsedInvitation{
+		Code: req.Invitation,
+		By:   req.Username,
+	})
 	config.save()
 
 	// create new user

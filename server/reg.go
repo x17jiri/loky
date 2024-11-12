@@ -56,10 +56,7 @@ func reg_http_handler(w http.ResponseWriter, r *http.Request) {
 
 	// remove invitation from config and log invitation usage
 	config.Invitations = append(config.Invitations[:index], config.Invitations[index+1:]...)
-	config.UsedInvitations = append(config.UsedInvitations, UsedInvitation{
-		Code: req.Invitation,
-		By:   req.Username,
-	})
+	config.UsedInvitations = append(config.UsedInvitations, req.Username+": "+req.Invitation)
 	config.save()
 
 	// create new user

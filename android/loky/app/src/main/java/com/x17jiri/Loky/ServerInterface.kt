@@ -69,7 +69,8 @@ interface ServerInterface {
 		forceKeyResend: Boolean = false,
 	): Result<NeedPrekeys>
 	suspend fun recv(
-		contacts: Map<String, RecvChan>
+		contacts: Map<String, RecvChan>,
+		lastErr: MutableMap<String, Long>,
 	): Result<Pair<List<Message>, NeedPrekeys>>
 }
 
@@ -104,7 +105,8 @@ class ServerInterfaceMock: ServerInterface {
 	}
 
 	override suspend fun recv(
-		contacts: Map<String, RecvChan>
+		contacts: Map<String, RecvChan>,
+		lastErr: MutableMap<String, Long>,
 	): Result<Pair<List<Message>, NeedPrekeys>> {
 		return Result.failure(Exception("Not implemented"))
 	}
@@ -471,7 +473,8 @@ class ServerInterfaceImpl(
 	}
 
 	override suspend fun recv(
-		contacts: Map<String, RecvChan>
+		contacts: Map<String, RecvChan>,
+		lastErr: MutableMap<String, Long>,
 	): Result<Pair<List<Message>, NeedPrekeys>> {
 		if (contacts.isEmpty()) {
 			return Result.success(Pair(emptyList(), NeedPrekeys(false)))
@@ -530,9 +533,11 @@ class ServerInterfaceImpl(
 							val lat = parts[0].toDouble()
 							val lon = parts[1].toDouble()
 							messages.add(Message(msg.from, timestamp, lat, lon))
+							lastErr[msg.from] = 0
 						}
 					} catch (e: Exception) {
 						Log.d("Locodile", "ServerInterface.recv: e=$e")
+						lastErr[msg.from] = now
 					}
 				}
 				Pair(messages, NeedPrekeys(resp.needPrekeys))

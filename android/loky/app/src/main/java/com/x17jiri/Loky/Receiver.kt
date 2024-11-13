@@ -128,11 +128,14 @@ class Receiver(
 
 	val contacts = stateStore.flow().stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
+	val lastErr = MutableStateFlow(Pair(0L, mapOf<String, Long>()))
+
 	private var job: Job? = null
 
 	fun start() {
 		if (job == null) {
 			job = scope.launch {
+				val mutableLastErr = lastErr.value.second.toMutableMap()
 				var time = 0
 				while (isActive) {
 					val now = monotonicSeconds()
@@ -144,7 +147,7 @@ class Receiver(
 						inbox.launchCleanUp()
 					} else {
 						Log.d("Locodile", "recv BEFORE **")
-						server.recv(contacts.value).fold(
+						server.recv(contacts.value, mutableLastErr).fold(
 							onSuccess = { (list, needPrekeys) ->
 								Log.d("Locodile", "recv onSuccess")
 								if (needPrekeys.value) {
@@ -166,6 +169,7 @@ class Receiver(
 							}
 						)
 					}
+					lastErr.value = Pair(now, mutableLastErr.toMap())
 					delay(4_000)
 					time += 4
 				}

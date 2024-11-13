@@ -151,7 +151,7 @@ fun NavigationGraph() {
 			MapViewScreen(navController, model)
 		}
 		composable("contacts") {
-			ContactsScreen(navController, model.contactsStore, model.server)
+			ContactsScreen(navController, model.contactsStore, model.receiver, model.server)
 		}
 		composable("myprofile") {
 			MyProfileScreen(navController)

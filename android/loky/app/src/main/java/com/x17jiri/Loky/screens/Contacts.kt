@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,8 +50,11 @@ import com.x17jiri.Loky.PublicDHKey
 import com.x17jiri.Loky.PublicECKey
 import com.x17jiri.Loky.PublicKeyMock
 import com.x17jiri.Loky.PublicSigningKey
+import com.x17jiri.Loky.Receiver
 import com.x17jiri.Loky.ServerInterface
 import com.x17jiri.Loky.ServerInterfaceMock
+import com.x17jiri.Loky.monotonicSeconds
+import com.x17jiri.Loky.prettyAge
 import com.x17jiri.Loky.ui.theme.X17LokyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -67,13 +71,16 @@ enum class AddContactState {
 fun ContactsScreen(
     navController: NavController,
     contactsStore: ContactsStore,
-    server: ServerInterface
+    receiver: Receiver,
+    server: ServerInterface,
 ) {
     val scope = rememberCoroutineScope()
     ScreenHeader("Contacts", navController) {
         val contacts by contactsStore.flow().collectAsState(emptyList())
+        val lastErr by receiver.lastErr.collectAsState(Pair(0, emptyMap()))
         var itemToDel by remember { mutableStateOf<Contact?>(null) }
         var addContactState by remember { mutableStateOf(AddContactState.Hidden) }
+        var failedDialog by remember { mutableStateOf("") }
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth()
@@ -135,6 +142,23 @@ fun ContactsScreen(
                             Text(text = contact.name)
                         }
                         Spacer(modifier = Modifier.width(20.dp))
+                        val err = lastErr.second[contact.id]
+                        if (err != null && err != 0L) {
+                            IconButton(
+                                onClick = {
+                                    val now = monotonicSeconds()
+                                    val age = prettyAge(now - err)
+                                    failedDialog = "The last message (received ${age} ago) couldn't be decrypted."
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Warning,//Default.Warning,
+                                    contentDescription = "Warning icon",
+                                    tint = Color.Red,
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(20.dp))
                         IconButton(
                             onClick = { itemToDel = contact }
                         ) {
@@ -146,7 +170,6 @@ fun ContactsScreen(
                     }
                 }
             }
-            var failedDialog by remember { mutableStateOf("") }
             FloatingActionButton(
                 onClick = { addContactState = AddContactState.TextInput },
                 modifier = Modifier
@@ -264,7 +287,7 @@ fun AddContactDialog(
         }
     }
 }
-
+/*
 @Preview(showBackground = true)
 @Composable
 fun ContactsScreenPreview() {
@@ -294,7 +317,7 @@ fun ContactsScreenPreview() {
         ContactsScreen(navController, contactsStore, server)
     }
 }
-
+*/
 @Preview(showBackground = true)
 @Composable
 fun AddContactDialogPreview() {

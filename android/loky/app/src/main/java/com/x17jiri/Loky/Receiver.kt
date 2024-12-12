@@ -129,6 +129,7 @@ class Receiver(
 	val contacts = stateStore.flow().stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
 	val lastErr = MutableStateFlow(Pair(0L, mapOf<String, Long>()))
+	val decryptOk = MutableStateFlow(true)
 
 	private var job: Job? = null
 
@@ -169,7 +170,9 @@ class Receiver(
 							}
 						)
 					}
-					lastErr.value = Pair(now, mutableLastErr.toMap())
+					val lastErrMap = mutableLastErr.toMap()
+					lastErr.value = Pair(now, lastErrMap)
+					decryptOk.value = lastErrMap.all { it.value == 0L }
 					delay(4_000)
 					time += 4
 				}

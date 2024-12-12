@@ -36,6 +36,7 @@ data class Contact(
 	val recv: Boolean,
 	val signKey: PublicSigningKey,
 	val masterKey: PublicDHKey,
+	val color: Int,
 )
 
 interface ContactsStore {
@@ -44,6 +45,7 @@ interface ContactsStore {
 	suspend fun setSend(contact: Contact, send: Boolean)
 	suspend fun setRecv(contact: Contact, recv: Boolean)
 	suspend fun setKeys(contact: Contact, sign: PublicSigningKey, master: PublicDHKey)
+	suspend fun setColor(contact: Contact, color: Int)
 	suspend fun insert(contact: Contact)
 	suspend fun delete(contact: Contact)
 
@@ -71,6 +73,11 @@ class ContactsStoreMock(
 
 	override suspend fun setKeys(contact: Contact, sign: PublicSigningKey, master: PublicDHKey) {
 		contacts[contact.id] = contact.copy(signKey = sign, masterKey = master)
+		__flow.update { contacts.values.toList() }
+	}
+
+	override suspend fun setColor(contact: Contact, color: Int) {
+		contacts[contact.id] = contact.copy(color = color)
 		__flow.update { contacts.values.toList() }
 	}
 
@@ -102,6 +109,7 @@ class ContactDBEntity(
 	val recv: Boolean,
 	val signKey: String,
 	val masterKey: String,
+	val color: Int,
 ) {
 	fun toContact(): Contact? {
 		val signKey = PublicSigningKey.fromString(this.signKey).getOrNull()
@@ -114,6 +122,7 @@ class ContactDBEntity(
 				recv = this.recv,
 				signKey = signKey,
 				masterKey = masterKey,
+				color = this.color,
 			)
 		} else {
 			return null
@@ -131,6 +140,9 @@ interface ContactDao {
 
 	@Query("UPDATE contacts SET signKey = :sign, masterKey = :master WHERE id = :id")
 	suspend fun setKeys(id: String, sign: String, master: String)
+
+	@Query("UPDATE contacts SET color = :color WHERE id = :id")
+	suspend fun setColor(id: String, color: Int)
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun insertAll(vararg contacts: ContactDBEntity)
@@ -164,6 +176,10 @@ class ContactsDBStore(
 		dao.setKeys(contact.id, sign.toString(), master.toString())
 	}
 
+	override suspend fun setColor(contact: Contact, color: Int) {
+		dao.setColor(contact.id, color)
+	}
+
 	override suspend fun insert(contact: Contact) {
 		val dbEntity = ContactDBEntity(
 			id = contact.id,
@@ -172,6 +188,7 @@ class ContactsDBStore(
 			recv = contact.recv,
 			signKey = contact.signKey.toString(),
 			masterKey = contact.masterKey.toString(),
+			color = contact.color,
 		)
 		dao.insertAll(dbEntity)
 	}

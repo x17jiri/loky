@@ -73,9 +73,11 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -101,6 +103,7 @@ import java.nio.charset.StandardCharsets
 import kotlin.math.roundToInt
 import com.x17jiri.Loky.screens.AboutScreen
 import com.x17jiri.Loky.screens.ContactsScreen
+import com.x17jiri.Loky.screens.EditContactScreen
 import com.x17jiri.Loky.screens.LoginScreen
 import com.x17jiri.Loky.screens.MyProfileScreen
 import com.x17jiri.Loky.screens.RegisterScreen
@@ -158,6 +161,13 @@ fun NavigationGraph() {
 		}
 		composable("about") {
 			AboutScreen(navController)
+		}
+		composable(
+			"editcontact/{contactID}",
+			arguments = listOf(navArgument("contactID") { type = NavType.StringType })
+		) { backStackEntry ->
+			val contactID = backStackEntry.arguments?.getString("contactID") ?: ""
+			EditContactScreen(navController, model.contactsStore, model.iconCache, contactID)
 		}
 	}
 }
@@ -245,6 +255,7 @@ fun MapViewScreen(navController: NavController, model: MainViewModel) {
 		}
 		val contacts by contactsFlow.collectAsState(emptyList())
 		val dataWithHeartbeat by model.receiver.dataWithHeartbeat.collectAsState()
+		val decryptOk by model.receiver.decryptOk.collectAsState()
 		val mapViewportState = rememberMapViewportState {}
 		Column(Modifier.padding(innerPadding)) {
 			Box(
@@ -266,19 +277,19 @@ fun MapViewScreen(navController: NavController, model: MainViewModel) {
 						PolylineAnnotation(
 							points = values.map { Point.fromLngLat(it.lon, it.lat) }
 						) {
-							lineColor = Color(0xffee4e8b)
+							lineColor = Color(contact.color)
 							lineWidth = 5.0
 						}
 
 						val lastMsg = values.last()
 						val age = now - lastMsg.timestamp
-						val marker: IconImage = rememberIconImage(R.drawable.red_marker)
+						val marker = remember(contact.color) { IconImage(model.iconCache.get(contact.color)) }
 						PointAnnotation(
 							point = Point.fromLngLat(lastMsg.lon, lastMsg.lat),
 						) {
 							iconImage = marker
-							iconSize = 1.5
-							iconOffset = listOf(0.0, -16.0)
+							iconSize = 0.6
+							iconOffset = listOf(0.0, -33.0)
 //							iconAnchor = IconAnchor.BOTTOM
 							textField = "${contact.name}\n${prettyAge(age)} ago"
 							textOffset = listOf(1.5, -3.5)
@@ -301,7 +312,22 @@ fun MapViewScreen(navController: NavController, model: MainViewModel) {
 					}
 				}
 			}
+			if (!decryptOk) {
+				Spacer(modifier = Modifier.height(1.dp))
+				Box(
+					modifier = Modifier
+						.fillMaxWidth()
+						.background(Color.Red)
+						.padding(20.dp),
+				) {
+					Text(
+						"Some messages couldn't be decrypted",
+						color = Color.White,
+					)
+				}
+			}
 			if (!dataWithHeartbeat.ok) {
+				Spacer(modifier = Modifier.height(1.dp))
 				Box(
 					modifier = Modifier
 						.fillMaxWidth()

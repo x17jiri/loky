@@ -3,6 +3,8 @@ package com.x17jiri.Loky
 import android.content.Context
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,12 +55,21 @@ class SingletonBase<T>(
 
 val Context.__dataStore by preferencesDataStore(name = "settings")
 
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Add the new column to the existing table
+        database.execSQL("ALTER TABLE contacts ADD COLUMN color INTEGER NOT NULL DEFAULT 0xFFFF0000")
+    }
+}
+
 val Context.__database by SingletonBase { appContext, scope ->
 	Room.databaseBuilder(
 		appContext,
 		AppDatabase::class.java,
 		"x17loky_database"
-	).build()
+	)
+		.addMigrations(MIGRATION_1_2)
+		.build()
 }
 
 val Context.__contactsStore by SingletonBase<ContactsStore> { appContext, scope ->

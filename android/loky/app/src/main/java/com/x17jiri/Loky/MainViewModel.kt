@@ -28,6 +28,7 @@ class MainViewModel(context: Context): ViewModel() {
 	val settings = context.__settings
 	val server = context.__server
 	val receiver = Receiver(server, inboxMan, settings, recvChanStateStore, viewModelScope)
+	val iconCache = IconCache(context)
 }
 
 class MainViewModelFactory(private val context: Context) : ViewModelProvider.Factory {

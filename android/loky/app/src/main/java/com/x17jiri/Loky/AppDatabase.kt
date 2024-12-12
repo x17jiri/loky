@@ -11,7 +11,7 @@ import androidx.room.RoomDatabase
 		SendChanStateDBEntity::class,
 		RecvChanStateDBEntity::class,
 	],
-	version = 1
+	version = 2,
 )
 abstract class AppDatabase: RoomDatabase() {
 	abstract fun contactDao(): ContactDao
@@ -20,4 +20,3 @@ abstract class AppDatabase: RoomDatabase() {
 	abstract fun sendChanStateDao(): SendChanStateDao
 	abstract fun recvChanStateDao(): RecvChanStateDao
 }
-

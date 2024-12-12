@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -90,7 +91,7 @@ fun ContactsScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clickable {}
+                            .clickable { navController.navigate("editContact/${contact.id}") }
                             .fillMaxWidth()
                             .padding(10.dp)
                     ) {
@@ -211,6 +212,7 @@ fun ContactsScreen(
                                                     masterKey = userInfo.masterKey,
                                                     send = false,
                                                     recv = true,
+													color = Color.Red.toArgb(),
                                                 )
                                             )
                                         }
@@ -325,4 +327,3 @@ fun AddContactDialogPreview() {
         AddContactDialog({}, {})
     }
 }
-

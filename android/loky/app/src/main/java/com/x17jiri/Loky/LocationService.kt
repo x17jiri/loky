@@ -149,7 +149,7 @@ class LocationService: Service() {
 	}
 
 	@SuppressLint("MissingPermission")
-    private fun requestLocationUpdates() {
+	private fun requestLocationUpdates() {
 		try {
 			val oldListener = locationListener
 			if (oldListener != null) {
@@ -230,5 +230,3 @@ class LocationService: Service() {
 
 	override fun onBind(intent: Intent?): IBinder? = null
 }
-
-

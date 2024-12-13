@@ -199,11 +199,11 @@ class ContactsDBStore(
 
 	private val mutex = Mutex()
 
-    override fun launchEdit(block: suspend (ContactsStore) -> Unit) {
+	override fun launchEdit(block: suspend (ContactsStore) -> Unit) {
 		coroutineScope.launch {
 			mutex.withLock {
 				block(this@ContactsDBStore)
 			}
 		}
-    }
+	}
 }

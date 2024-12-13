@@ -32,7 +32,7 @@ class IconCache(
 			for (x in 0 until originalBitmap.width) {
 				for (y in 0 until originalBitmap.height) {
 					val pixel = originalBitmap.getPixel(x, y)
-					val l = pixel.red
+					val l = pixel.red // The image is grayscale, so we can use any of the RGB components
 					val a = pixel.alpha
 					hsl[2] = (if (l > 245) { l / 255f } else { l / 0.5f * L / 255f }).coerceIn(0f, 1f)
 					var newPixel = ColorUtils.HSLToColor(hsl)

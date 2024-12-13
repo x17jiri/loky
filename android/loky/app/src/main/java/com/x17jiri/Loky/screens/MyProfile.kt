@@ -16,23 +16,23 @@ import com.x17jiri.Loky.ui.theme.X17LokyTheme
 
 @Composable
 fun MyProfileScreen(navController: NavController) {
-    ScreenHeader("My Profile", navController) {
-        Column(
-            modifier = Modifier
-                .padding(20.dp)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-        ) {
-            Text("TODO: not implemented")
-        }
-    }
+	ScreenHeader("My Profile", navController) {
+		Column(
+			modifier = Modifier
+				.padding(20.dp)
+				.fillMaxWidth()
+				.verticalScroll(rememberScrollState())
+		) {
+			Text("TODO: not implemented")
+		}
+	}
 }
 
 @Preview(showBackground = true)
 @Composable
 fun MyProfileScreenPreview() {
-    X17LokyTheme {
-        val navController = rememberNavController()
-        MyProfileScreen(navController)
-    }
+	X17LokyTheme {
+		val navController = rememberNavController()
+		MyProfileScreen(navController)
+	}
 }

@@ -59,129 +59,128 @@ import kotlinx.coroutines.withContext
 @SuppressLint("StateFlowValueCalledInComposition")
 @Composable
 fun LoginScreen(
-    navController: NavController,
-    profileStore: ProfileStore,
-    server: ServerInterface,
+	navController: NavController,
+	profileStore: ProfileStore,
+	server: ServerInterface,
 ) {
-    val cred = profileStore.cred.value
-    var username by remember { mutableStateOf(cred.username) }
-    var passwd by remember { mutableStateOf(cred.passwd) }
-    var errMessage by remember { mutableStateOf("") }
+	val cred = profileStore.cred.value
+	var username by remember { mutableStateOf(cred.username) }
+	var passwd by remember { mutableStateOf(cred.passwd) }
+	var errMessage by remember { mutableStateOf("") }
 	var working by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        Spacer(modifier = Modifier.height(20.dp))
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Welcome!")
-        }
-        Spacer(modifier = Modifier.height(20.dp))
-        TextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Username") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp)
-        )
-        var passwordVisible by remember { mutableStateOf(false) }
-        TextField(
-            value = passwd,
-            onValueChange = { passwd = it },
-            label = { Text("Password") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp),
-            visualTransformation =
-            if (passwordVisible) {
-                VisualTransformation.None
-            } else {
-                PasswordVisualTransformation()
-            },
-            trailingIcon = {
-                val image =
-                    if (passwordVisible) {
-                        Icons.Filled.Visibility
-                    } else {
-                        Icons.Filled.VisibilityOff
-                    }
-                val description = if (passwordVisible) "Hide password" else "Show password"
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                    Icon(imageVector = image, contentDescription = description)
-                }
-            }
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-        Button(
-            onClick = {
-                working = true
-                coroutineScope.launch(Dispatchers.IO) {
-                    server.login(username, passwd).fold(
-                        onSuccess = { needPrekeys ->
-                            if (needPrekeys.value) {
-                                server.addPreKeys()
-                            }
-                            withContext(Dispatchers.Main) {
-                                navController.navigate("map") {
-                                    popUpTo("login") { inclusive = true }
-                                }
-                            }
-                        },
-                        onFailure = { e ->
-                            working = false
-                            errMessage = e.toString()
-                        }
-                    )
-                }
-            },
-            enabled = username != "" && passwd != "",
-            content = { Text("Login") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp)
-        )
-        Box(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
-            contentAlignment = Alignment.Center // Center the text inside the Box
-        ) {
-            Text("or")
-        }
-        Box(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
-            contentAlignment = Alignment.Center // Center the text inside the Box
-        ) {
-            HyperlinkButton(
-                text = "Register",
-                onClick = {
-                    navController.navigate("reg")
-                }
-            )
-        }
-        if (errMessage != "") {
-            MessageDialog(
-                errMessage,
-                onDismiss = { errMessage = "" }
-            )
-        } else if (working) {
-            InfoDialg("Working...")
-        }
-    }
+	val coroutineScope = rememberCoroutineScope()
+	Column(
+		modifier = Modifier.fillMaxSize()
+	) {
+		Spacer(modifier = Modifier.height(20.dp))
+		Box(
+			modifier = Modifier.fillMaxWidth(),
+			contentAlignment = Alignment.Center,
+		) {
+			Text("Welcome!")
+		}
+		Spacer(modifier = Modifier.height(20.dp))
+		TextField(
+			value = username,
+			onValueChange = { username = it },
+			label = { Text("Username") },
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(10.dp)
+		)
+		var passwordVisible by remember { mutableStateOf(false) }
+		TextField(
+			value = passwd,
+			onValueChange = { passwd = it },
+			label = { Text("Password") },
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(10.dp),
+			visualTransformation =
+			if (passwordVisible) {
+				VisualTransformation.None
+			} else {
+				PasswordVisualTransformation()
+			},
+			trailingIcon = {
+				val image =
+					if (passwordVisible) {
+						Icons.Filled.Visibility
+					} else {
+						Icons.Filled.VisibilityOff
+					}
+				val description = if (passwordVisible) "Hide password" else "Show password"
+				IconButton(onClick = { passwordVisible = !passwordVisible }) {
+					Icon(imageVector = image, contentDescription = description)
+				}
+			}
+		)
+		Spacer(modifier = Modifier.height(20.dp))
+		Button(
+			onClick = {
+				working = true
+				coroutineScope.launch(Dispatchers.IO) {
+					server.login(username, passwd).fold(
+						onSuccess = { needPrekeys ->
+							if (needPrekeys.value) {
+								server.addPreKeys()
+							}
+							withContext(Dispatchers.Main) {
+								navController.navigate("map") {
+									popUpTo("login") { inclusive = true }
+								}
+							}
+						},
+						onFailure = { e ->
+							working = false
+							errMessage = e.toString()
+						}
+					)
+				}
+			},
+			enabled = username != "" && passwd != "",
+			content = { Text("Login") },
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(10.dp)
+		)
+		Box(
+			modifier = Modifier.fillMaxWidth().padding(10.dp),
+			contentAlignment = Alignment.Center // Center the text inside the Box
+		) {
+			Text("or")
+		}
+		Box(
+			modifier = Modifier.fillMaxWidth().padding(10.dp),
+			contentAlignment = Alignment.Center // Center the text inside the Box
+		) {
+			HyperlinkButton(
+				text = "Register",
+				onClick = {
+					navController.navigate("reg")
+				}
+			)
+		}
+		if (errMessage != "") {
+			MessageDialog(
+				errMessage,
+				onDismiss = { errMessage = "" }
+			)
+		} else if (working) {
+			InfoDialg("Working...")
+		}
+	}
 }
 
 @Preview(showBackground = true)
 @Composable
 fun LoginScreenPreview() {
-    X17LokyTheme {
-        val navController = rememberNavController()
-        val profileStore = ProfileStoreMock()
-        profileStore.launchEdit { dao ->
-            dao.setCred(Credentials("jiri", "123"))
-        }
-        LoginScreen(navController, profileStore, ServerInterfaceMock())
-    }
+	X17LokyTheme {
+		val navController = rememberNavController()
+		val profileStore = ProfileStoreMock()
+		profileStore.launchEdit { dao ->
+			dao.setCred(Credentials("jiri", "123"))
+		}
+		LoginScreen(navController, profileStore, ServerInterfaceMock())
+	}
 }
-

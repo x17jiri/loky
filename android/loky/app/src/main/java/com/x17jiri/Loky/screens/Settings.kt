@@ -44,150 +44,149 @@ import kotlin.math.roundToInt
 @SuppressLint("StateFlowValueCalledInComposition")
 @Composable
 fun SettingsDialog(
-    navController: NavController,
-    settings: SettingsStore,
-    onDismiss: () -> Unit,
+	navController: NavController,
+	settings: SettingsStore,
+	onDismiss: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-        ) {
-            Column(
-                modifier = Modifier
-                    .padding(20.dp)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        "Settings",
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 24.sp
-                        ),
-                        modifier = Modifier.weight(1.0f)
-                    )
-                    // "x" icon to close the dialog
-                    IconButton(
-                        onClick = onDismiss,
-                    ) {
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = "Close"
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(20.dp))
+	Dialog(onDismissRequest = onDismiss) {
+		Surface(
+			shape = MaterialTheme.shapes.medium,
+			modifier = Modifier
+				.fillMaxWidth()
+				.wrapContentHeight()
+		) {
+			Column(
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
+					.verticalScroll(rememberScrollState())
+			) {
+				Row(
+					verticalAlignment = Alignment.CenterVertically,
+					modifier = Modifier.fillMaxWidth()
+				) {
+					Text(
+						"Settings",
+						style = MaterialTheme.typography.bodyLarge.copy(
+							fontWeight = FontWeight.Bold,
+							fontSize = 24.sp
+						),
+						modifier = Modifier.weight(1.0f)
+					)
+					// "x" icon to close the dialog
+					IconButton(
+						onClick = onDismiss,
+					) {
+						Icon(
+							Icons.Filled.Close,
+							contentDescription = "Close"
+						)
+					}
+				}
+				Spacer(modifier = Modifier.height(20.dp))
 
-                Column(
-                    modifier = Modifier
-                        .padding(10.dp)
-                        .fillMaxWidth()
-                ) {
-                    Text(
-                        "Location Sharing Frequency",
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                        ),
-                    )
-                    val shareFreqValues = listOf(
-                        Pair(5.0, "5 seconds"),
-                        Pair(15.0, "15 seconds"),
-                        Pair(30.0, "30 seconds"),
-                        Pair(60.0, "1 minute"),
-                        Pair(120.0, "2 minutes"),
-                        Pair(180.0, "3 minutes"),
-                    )
-                    val shareFreq = settings.shareFreq.value.seconds
-                    var closestIndex = 0
-                    var closestDistance = (shareFreq - shareFreqValues[0].first) * (shareFreq - shareFreqValues[0].first)
-                    for (i in 1 until shareFreqValues.size) {
-                        val distance = (shareFreq - shareFreqValues[i].first) * (shareFreq - shareFreqValues[i].first)
-                        if (distance < closestDistance) {
-                            closestIndex = i
-                            closestDistance = distance
-                        }
-                    }
-                    var sliderValue by remember { mutableFloatStateOf(closestIndex.toFloat()) }
-                    var textValue by remember { mutableStateOf(shareFreqValues[closestIndex].second) }
-                    Slider(
-                        value = sliderValue,
-                        onValueChange = { newValue ->
-                            val sec = shareFreqValues[newValue.roundToInt()]
-                            textValue = sec.second
-                            settings.launchEdit { dao ->
-                                dao.setShareFreq(SharingFrequency(sec.first))
-                            }
-                            sliderValue = newValue
-                        },
-                        valueRange = 0.0f..(shareFreqValues.size - 1).toFloat(),
-                        steps = shareFreqValues.size - 2,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text("Every $textValue")
-                    Spacer(modifier = Modifier.height(5.dp))
-                    Text("Note: The more frequent the updates, the more battery usage.")
-                }
-                Spacer(modifier = Modifier.height(5.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(5.dp))
+				Column(
+					modifier = Modifier
+						.padding(10.dp)
+						.fillMaxWidth()
+				) {
+					Text(
+						"Location Sharing Frequency",
+						style = MaterialTheme.typography.bodyLarge.copy(
+							fontWeight = FontWeight.Bold,
+						),
+					)
+					val shareFreqValues = listOf(
+						Pair(5.0, "5 seconds"),
+						Pair(15.0, "15 seconds"),
+						Pair(30.0, "30 seconds"),
+						Pair(60.0, "1 minute"),
+						Pair(120.0, "2 minutes"),
+						Pair(180.0, "3 minutes"),
+					)
+					val shareFreq = settings.shareFreq.value.seconds
+					var closestIndex = 0
+					var closestDistance = (shareFreq - shareFreqValues[0].first) * (shareFreq - shareFreqValues[0].first)
+					for (i in 1 until shareFreqValues.size) {
+						val distance = (shareFreq - shareFreqValues[i].first) * (shareFreq - shareFreqValues[i].first)
+						if (distance < closestDistance) {
+							closestIndex = i
+							closestDistance = distance
+						}
+					}
+					var sliderValue by remember { mutableFloatStateOf(closestIndex.toFloat()) }
+					var textValue by remember { mutableStateOf(shareFreqValues[closestIndex].second) }
+					Slider(
+						value = sliderValue,
+						onValueChange = { newValue ->
+							val sec = shareFreqValues[newValue.roundToInt()]
+							textValue = sec.second
+							settings.launchEdit { dao ->
+								dao.setShareFreq(SharingFrequency(sec.first))
+							}
+							sliderValue = newValue
+						},
+						valueRange = 0.0f..(shareFreqValues.size - 1).toFloat(),
+						steps = shareFreqValues.size - 2,
+						modifier = Modifier.fillMaxWidth(),
+					)
+					Text("Every $textValue")
+					Spacer(modifier = Modifier.height(5.dp))
+					Text("Note: The more frequent the updates, the more battery usage.")
+				}
+				Spacer(modifier = Modifier.height(5.dp))
+				HorizontalDivider()
+				Spacer(modifier = Modifier.height(5.dp))
 
-                Column(
-                    modifier = Modifier
-                        .clickable {
-                            navController.navigate("myprofile")
-                            onDismiss()
-                        }
-                        .padding(10.dp)
-                        .fillMaxWidth(),
-                ) {
-                    Text(
-                        "My Profile",
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                        ),
-                    )
-                    Text("Edit profile")
-                }
-                Spacer(modifier = Modifier.height(5.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(5.dp))
+				Column(
+					modifier = Modifier
+						.clickable {
+							navController.navigate("myprofile")
+							onDismiss()
+						}
+						.padding(10.dp)
+						.fillMaxWidth(),
+				) {
+					Text(
+						"My Profile",
+						style = MaterialTheme.typography.bodyLarge.copy(
+							fontWeight = FontWeight.Bold,
+						),
+					)
+					Text("Edit profile")
+				}
+				Spacer(modifier = Modifier.height(5.dp))
+				HorizontalDivider()
+				Spacer(modifier = Modifier.height(5.dp))
 
-                Column(
-                    modifier = Modifier
-                        .clickable {
-                            navController.navigate("about")
-                            onDismiss()
-                        }
-                        .padding(10.dp)
-                        .fillMaxWidth(),
-                ) {
-                    Text(
-                        "About",
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                        ),
-                    )
-                }
-                Spacer(modifier = Modifier.height(10.dp))
+				Column(
+					modifier = Modifier
+						.clickable {
+							navController.navigate("about")
+							onDismiss()
+						}
+						.padding(10.dp)
+						.fillMaxWidth(),
+				) {
+					Text(
+						"About",
+						style = MaterialTheme.typography.bodyLarge.copy(
+							fontWeight = FontWeight.Bold,
+						),
+					)
+				}
+				Spacer(modifier = Modifier.height(10.dp))
 
-            }
-        }
-    }
+			}
+		}
+	}
 }
 
 @Preview(showBackground = true)
 @Composable
 fun SettingsDialogPreview() {
-    X17LokyTheme {
-        val navController = rememberNavController()
-        SettingsDialog(navController, SettingsStoreMock()) {}
-    }
+	X17LokyTheme {
+		val navController = rememberNavController()
+		SettingsDialog(navController, SettingsStoreMock()) {}
+	}
 }
-

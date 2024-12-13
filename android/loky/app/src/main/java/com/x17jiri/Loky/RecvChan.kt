@@ -78,8 +78,8 @@ class RecvChanStateStoreMock(
 }
 
 @Entity(
-    tableName = "RecvChanState",
-    primaryKeys = ["contactID"],
+	tableName = "RecvChanState",
+	primaryKeys = ["contactID"],
 )
 data class RecvChanStateDBEntity(
 	val contactID: String,
@@ -177,4 +177,3 @@ class RecvChan(
 		this.state.value = RecvChanState(myKeys.public, theirNewKey.key, newSharedSecret)
 	}
 }
-

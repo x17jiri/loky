@@ -71,9 +71,9 @@ import com.x17jiri.Loky.ServerInterfaceMock
 import com.x17jiri.Loky.ui.theme.X17LokyTheme
 
 fun isColorDark(color: Color): Boolean {
-    // Perceived brightness formula
-    val brightness = (color.red * 0.299 + color.green * 0.587 + color.blue * 0.114)
-    return brightness < 0.5
+	// Perceived brightness formula
+	val brightness = (color.red * 0.299 + color.green * 0.587 + color.blue * 0.114)
+	return brightness < 0.5
 }
 
 @Composable
@@ -82,7 +82,7 @@ fun ColorPicker(colors: List<Color>, selectedColor: Color, onColorSelected: (Col
 		for (i in colors.indices step 5) {
 			Row(
 				modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+				horizontalArrangement = Arrangement.SpaceEvenly
 			) {
 				for (j in 0 until 5) {
 					if (i + j < colors.size) {
@@ -98,15 +98,15 @@ fun ColorPicker(colors: List<Color>, selectedColor: Color, onColorSelected: (Col
 								.clickable { onColorSelected(color) }
 						) {
 							if (color == selectedColor) {
-                                // Draw a checkmark inside the circle
-                                val checkmarkColor = if (isColorDark(color)) Color.White else Color.Black
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Selected",
-                                    tint = checkmarkColor,
-                                    modifier = Modifier.size(24.dp) // Adjust size as needed
-                                )
-                            }
+								// Draw a checkmark inside the circle
+								val checkmarkColor = if (isColorDark(color)) Color.White else Color.Black
+								Icon(
+									imageVector = Icons.Default.Check,
+									contentDescription = "Selected",
+									tint = checkmarkColor,
+									modifier = Modifier.size(24.dp) // Adjust size as needed
+								)
+							}
 						}
 					} else {
 						Box(
@@ -119,7 +119,7 @@ fun ColorPicker(colors: List<Color>, selectedColor: Color, onColorSelected: (Col
 				}
 			}
 		}
-    }
+	}
 }
 
 @Composable
@@ -140,8 +140,8 @@ fun EditContactScreen(
 			modifier = Modifier
 				.padding(20.dp)
 				.fillMaxWidth()
-                .fillMaxSize()
-				//.verticalScroll(rememberScrollState())
+				.fillMaxSize()
+				.verticalScroll(rememberScrollState())
 		) {
 			Text(buildAnnotatedString {
 				append("Name: ")
@@ -162,41 +162,29 @@ fun EditContactScreen(
 			ColorPicker(
 				listOf(
 					Color(0xFFFF0000), // red
-					Color(0xFF00FF00), // green
 					Color(0xFFFF8000), // orange
 					Color(0xFFFFFF00), // yellow
 					Color(0xFFA000FF), // purple
-					Color(0xFFFF0070), // pink
 					Color(0xFFFF00FF), // magenta
+
+					Color(0xFFFF0070), // pink
 					Color(0xFF0000FF), // light blue
 					Color(0xFF0080FF), // light blue
 					Color(0xFF00FFFF), // light cyan
-				),
-				selectedColor = color
-			) {
-				color = it
-				contactsStore.launchEdit { dao -> dao.setColor(contact, color.toArgb()) }
-			}
-			ColorPicker(
-				listOf(
+					Color(0xFF00FF00), // green
+
 					Color(0xFF7F0000), // dark red
-					Color(0xFF007F00), // dark green
 					Color(0xFF7F4000), // brown
 					Color(0xFF7F7F00), // dark yellow
 					Color(0xFF50007F), // dark purple
-					Color(0xFF7F0048), // dark pink
 					Color(0xFF7F007F), // dark magenta
+
+					Color(0xFF7F0048), // dark pink
 					Color(0xFF00007F), // dark blue
 					Color(0xFF00407F), // dark blue
 					Color(0xFF007F7F), // dark cyan
-				),
-				selectedColor = color
-			) {
-				color = it
-				contactsStore.launchEdit { dao -> dao.setColor(contact, color.toArgb()) }
-			}
-			ColorPicker(
-				listOf(
+					Color(0xFF007F00), // dark green
+
 					Color.Black,
 					Color(0xFF404040), // dark grey
 					Color(0xFF808080), // grey
@@ -215,31 +203,31 @@ fun EditContactScreen(
 @Preview(showBackground = true)
 @Composable
 fun EditContactScreenPreview() {
-    X17LokyTheme {
+	X17LokyTheme {
 		val context = LocalContext.current
-        val navController = rememberNavController()
-        val contactsStore = ContactsStoreMock(
-                mutableMapOf(
-                    "abc" to Contact(
-                        id = "abc",
-                        name = "jiri",
-                        send = false,
-                        recv = true,
-                        signKey = PublicSigningKey(PublicECKey(PublicKeyMock())),
-                        masterKey = PublicDHKey(PublicECKey(PublicKeyMock())),
-						color = Color.Green.toArgb(),
-                    ),
-                    "abcd" to Contact(
-                        id = "abcd",
-                        name = "zuzka",
-                        send = true,
-                        recv = true,
-                        signKey = PublicSigningKey(PublicECKey(PublicKeyMock())),
-                        masterKey = PublicDHKey(PublicECKey(PublicKeyMock())),
+		val navController = rememberNavController()
+		val contactsStore = ContactsStoreMock(
+				mutableMapOf(
+					"abc" to Contact(
+						id = "abc",
+						name = "jiri",
+						send = false,
+						recv = true,
+						signKey = PublicSigningKey(PublicECKey(PublicKeyMock())),
+						masterKey = PublicDHKey(PublicECKey(PublicKeyMock())),
+						color = Color.Yellow.toArgb(),
+					),
+					"abcd" to Contact(
+						id = "abcd",
+						name = "zuzka",
+						send = true,
+						recv = true,
+						signKey = PublicSigningKey(PublicECKey(PublicKeyMock())),
+						masterKey = PublicDHKey(PublicECKey(PublicKeyMock())),
 						color = Color.Magenta.toArgb(),
-                    ),
-                )
-        )
-        EditContactScreen(navController, contactsStore, IconCache(context), "abcd")
-    }
+					),
+				)
+		)
+		EditContactScreen(navController, contactsStore, IconCache(context), "abc")
+	}
 }

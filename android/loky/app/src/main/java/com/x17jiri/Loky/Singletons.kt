@@ -18,7 +18,7 @@ import kotlin.reflect.KProperty
 // they need a reference to the application context, so we cannot use `Lazy`.
 
 class SingletonBase<T>(
-    scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
+	scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
 	create: (Context, CoroutineScope) -> T
 ): ReadOnlyProperty<Context, T> {
 	@Volatile
@@ -56,10 +56,10 @@ class SingletonBase<T>(
 val Context.__dataStore by preferencesDataStore(name = "settings")
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
-    override fun migrate(database: SupportSQLiteDatabase) {
-        // Add the new column to the existing table
-        database.execSQL("ALTER TABLE contacts ADD COLUMN color INTEGER NOT NULL DEFAULT 0xFFFF0000")
-    }
+	override fun migrate(database: SupportSQLiteDatabase) {
+		// Add the new column to the existing table
+		database.execSQL("ALTER TABLE contacts ADD COLUMN color INTEGER NOT NULL DEFAULT 0xFFFF0000")
+	}
 }
 
 val Context.__database by SingletonBase { appContext, scope ->

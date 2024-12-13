@@ -89,7 +89,7 @@ class InboxManager(
 data class DataWithHeartbeat(
 	val time: Long,
 	val ok: Boolean,
-	val data:  HashMap<String, MutableList<Message>>,
+	val data: HashMap<String, MutableList<Message>>,
 )
 
 class Receiver(

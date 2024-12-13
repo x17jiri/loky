@@ -38,143 +38,147 @@ import com.x17jiri.Loky.ui.theme.X17LokyTheme
 
 @Composable
 fun HyperlinkButton(
-    text: String,
-    onClick: () -> Unit
+	text: String,
+	onClick: () -> Unit
 ) {
-    Text(
-        text = text,
-        color = Color(0xFF1E88E5), // Blue color to resemble a hyperlink
-        style = TextStyle(
-            fontSize = 16.sp,
-            textDecoration = TextDecoration.Underline // Underline for hyperlink style
-        ),
-        modifier = Modifier.clickable(onClick = onClick)
-    )
+	Text(
+		text = text,
+		color = Color(0xFF1E88E5), // Blue color to resemble a hyperlink
+		style = TextStyle(
+			fontSize = 16.sp,
+			textDecoration = TextDecoration.Underline // Underline for hyperlink style
+		),
+		modifier = Modifier.clickable(onClick = onClick)
+	)
 }
 
 @Composable
 fun ScreenHeader(
-    name: String,
-    navController: NavController,
-    block: @Composable () -> Unit
+	name: String,
+	navController: NavController,
+	block: @Composable () -> Unit
 ) {
-    Scaffold(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-        topBar = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                IconButton(onClick = { navController.popBackStack() }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back"
-                    )
-                }
-                Text(
-                    name,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp,
-                    )
-                )
-            }
-        },
-    ) { innerPadding ->
-        Box(modifier = Modifier.padding(innerPadding)) {
-            block()
-        }
-    }
+	Scaffold(
+		modifier = Modifier
+			.fillMaxSize()
+			.statusBarsPadding()
+			.navigationBarsPadding(),
+		topBar = {
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				modifier = Modifier.fillMaxWidth()
+			) {
+				IconButton(onClick = { navController.popBackStack() }) {
+					Icon(
+						imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+						contentDescription = "Back"
+					)
+				}
+				Text(
+					name,
+					style = MaterialTheme.typography.bodyLarge.copy(
+						fontWeight = FontWeight.Bold,
+						fontSize = 24.sp,
+					)
+				)
+			}
+		},
+	) { innerPadding ->
+		Box(
+			modifier = Modifier
+				.fillMaxSize()
+				.padding(innerPadding)
+		) {
+			block()
+		}
+	}
 }
 
 @Composable
 fun ConfirmDialog(
-    text: String,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+	text: String,
+	onDismiss: () -> Unit,
+	onConfirm: () -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface {
-            Column(
-                modifier = Modifier
-                    .padding(20.dp)
-                    .fillMaxWidth()
-            ) {
-                Text(text)
-                Spacer(modifier = Modifier.height(20.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("No")
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    TextButton(
-                        onClick = {
-                            onConfirm()
-                            onDismiss()
-                        }
-                    ) {
-                        Text("Yes")
-                    }
-                }
-            }
-        }
-    }
+	Dialog(onDismissRequest = onDismiss) {
+		Surface {
+			Column(
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
+			) {
+				Text(text)
+				Spacer(modifier = Modifier.height(20.dp))
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.End
+				) {
+					TextButton(onClick = onDismiss) {
+						Text("No")
+					}
+					Spacer(modifier = Modifier.width(10.dp))
+					TextButton(
+						onClick = {
+							onConfirm()
+							onDismiss()
+						}
+					) {
+						Text("Yes")
+					}
+				}
+			}
+		}
+	}
 }
 
 @Composable
 fun MessageDialog(
-    text: String,
-    onDismiss: () -> Unit,
+	text: String,
+	onDismiss: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface {
-            Column(
-                modifier = Modifier
-                    .padding(20.dp)
-                    .fillMaxWidth()
-            ) {
-                Text(text)
-                Spacer(modifier = Modifier.height(20.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Ok")
-                    }
-                }
-            }
-        }
-    }
+	Dialog(onDismissRequest = onDismiss) {
+		Surface {
+			Column(
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
+			) {
+				Text(text)
+				Spacer(modifier = Modifier.height(20.dp))
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.End
+				) {
+					TextButton(onClick = onDismiss) {
+						Text("Ok")
+					}
+				}
+			}
+		}
+	}
 }
 
 @Composable
 fun InfoDialg(text: String) {
-    Dialog(onDismissRequest = { }) {
-        Surface {
-            Column(
-                modifier = Modifier
-                    .padding(20.dp)
-                    .fillMaxWidth()
-            ) {
-                Text(text)
-            }
-        }
-    }
+	Dialog(onDismissRequest = { }) {
+		Surface {
+			Column(
+				modifier = Modifier
+					.padding(20.dp)
+					.fillMaxWidth()
+			) {
+				Text(text)
+			}
+		}
+	}
 }
 
 @Preview(showBackground = true)
 @Composable
 fun ConfirmDialogPreview() {
-    X17LokyTheme {
-        ConfirmDialog("Are you sure?", {}, {})
-    }
+	X17LokyTheme {
+		ConfirmDialog("Are you sure?", {}, {})
+	}
 }
 
 @Preview(showBackground = true)

@@ -21,29 +21,29 @@ import com.x17jiri.Loky.ui.theme.X17LokyTheme
 
 @Composable
 fun AboutScreen(navController: NavController) {
-    val context = LocalContext.current
-    val pkgInfo = getPackageInfo(context, "com.x17jiri.Loky")
-    val version = pkgInfo?.versionName ?: "unknown"
-    ScreenHeader("About", navController) {
-        Column(
-            modifier = Modifier
-                .padding(20.dp)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-        ) {
-            Text("version: $version")
-            Text("commit: " + BuildConfig.GIT_COMMIT.take(16))
-            Spacer(modifier = Modifier.height(20.dp))
-            Text("(C) 2024 Jiri Bobek")
-        }
-    }
+	val context = LocalContext.current
+	val pkgInfo = getPackageInfo(context, "com.x17jiri.Loky")
+	val version = pkgInfo?.versionName ?: "unknown"
+	ScreenHeader("About", navController) {
+		Column(
+			modifier = Modifier
+				.padding(20.dp)
+				.fillMaxWidth()
+				.verticalScroll(rememberScrollState())
+		) {
+			Text("version: $version")
+			Text("commit: " + BuildConfig.GIT_COMMIT.take(16))
+			Spacer(modifier = Modifier.height(20.dp))
+			Text("(C) 2024 Jiri Bobek")
+		}
+	}
 }
 
 @Preview(showBackground = true)
 @Composable
 fun AboutScreenPreview() {
-    X17LokyTheme {
-        val navController = rememberNavController()
-        AboutScreen(navController)
-    }
+	X17LokyTheme {
+		val navController = rememberNavController()
+		AboutScreen(navController)
+	}
 }

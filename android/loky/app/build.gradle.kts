@@ -12,7 +12,7 @@ android {
 
 	defaultConfig {
 		applicationId = "com.x17jiri.Loky"
-		minSdk = 31
+		minSdk = 33
 		targetSdk = 34
 		versionCode = 1
 		versionName = "0.31-beta"
@@ -103,6 +103,8 @@ dependencies {
 
 	implementation("com.mapbox.maps:android:11.7.1")
 	implementation("com.mapbox.extension:maps-compose:11.7.1")
+
+	implementation("com.google.accompanist:accompanist-permissions:0.37.0")
 }
 
 secrets {

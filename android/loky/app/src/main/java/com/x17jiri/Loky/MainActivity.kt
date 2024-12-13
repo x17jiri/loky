@@ -58,12 +58,15 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -78,6 +81,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.PermissionState
+import com.google.accompanist.permissions.PermissionStatus
+import com.google.accompanist.permissions.rememberPermissionState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -106,6 +113,7 @@ import com.x17jiri.Loky.screens.ContactsScreen
 import com.x17jiri.Loky.screens.EditContactScreen
 import com.x17jiri.Loky.screens.LoginScreen
 import com.x17jiri.Loky.screens.MyProfileScreen
+import com.x17jiri.Loky.screens.PermissionsScreen
 import com.x17jiri.Loky.screens.RegisterScreen
 import com.x17jiri.Loky.screens.SettingsDialog
 
@@ -169,6 +177,9 @@ fun NavigationGraph() {
 			val contactID = backStackEntry.arguments?.getString("contactID") ?: ""
 			EditContactScreen(navController, model.contactsStore, model.iconCache, contactID)
 		}
+		composable("permissions") {
+			PermissionsScreen(navController)
+		}
 	}
 }
 
@@ -190,6 +201,7 @@ fun prettyAge(_sec: Long): String {
 	return "${hour}:${min.toString().padStart(2, '0')} hour"
 }
 
+@OptIn(ExperimentalPermissionsApi::class)
 @SuppressLint("StateFlowValueCalledInComposition")
 @Composable
 fun MapViewScreen(navController: NavController, model: MainViewModel) {
@@ -202,6 +214,23 @@ fun MapViewScreen(navController: NavController, model: MainViewModel) {
 
 	var showSettings by remember { mutableStateOf(false) }
 	val context = LocalContext.current
+
+	val locationPermission = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
+	val locationPermissionGranted = locationPermission.status == PermissionStatus.Granted
+
+	val backgroundLocationPermission = rememberPermissionState(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+	val backgroundLocationPermissionGranted = backgroundLocationPermission.status == PermissionStatus.Granted
+
+	val notificationPermission = rememberPermissionState(android.Manifest.permission.POST_NOTIFICATIONS)
+	val notificationPermissionGranted = notificationPermission.status == PermissionStatus.Granted
+
+	val wakeLockPermission = rememberPermissionState(android.Manifest.permission.WAKE_LOCK)
+	val wakeLockPermissionGranted = wakeLockPermission.status == PermissionStatus.Granted
+
+	val ignoreBatteryOptimizationPermission = rememberPermissionState(android.Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+	val ignoreBatteryOptimizationPermissionGranted = ignoreBatteryOptimizationPermission.status == PermissionStatus.Granted
+
+	val haveAllPermissions = locationPermissionGranted && backgroundLocationPermissionGranted && notificationPermissionGranted && wakeLockPermissionGranted && ignoreBatteryOptimizationPermissionGranted
 
 	Scaffold(
 		modifier = Modifier
@@ -338,6 +367,33 @@ fun MapViewScreen(navController: NavController, model: MainViewModel) {
 						"Couldn't fetch data from the server",
 						color = Color.White,
 					)
+				}
+			}
+			if (!haveAllPermissions) {
+				Spacer(modifier = Modifier.height(1.dp))
+				Box(
+					modifier = Modifier
+						.fillMaxWidth()
+						.background(Color.Red)
+						.clickable {
+							navController.navigate("permissions")
+						}
+						.padding(20.dp)
+				) {
+					Text(buildAnnotatedString {
+						withStyle(style = SpanStyle(color = Color.White)) {
+							append("Some permissions are missing. ")
+						}
+						withStyle(
+							style = SpanStyle(
+								color = Color.Blue,
+								fontWeight = FontWeight.Bold,
+								textDecoration = TextDecoration.Underline
+							)
+						) {
+							append("Click here to fix it.")
+						}
+					})
 				}
 			}
 		}
